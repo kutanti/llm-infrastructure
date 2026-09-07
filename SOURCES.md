@@ -1,6 +1,6 @@
-# Sources and evidence boundaries
+# References
 
-Primary sources consulted for this course on 2026-09-07. Web documentation
+Primary sources consulted on 2026-09-07. Web documentation
 and `main`/`master` branches are mutable; check the installed runtime's behavior.
 Publisher benchmark scores are not our measurements of quantized inference.
 
@@ -15,8 +15,8 @@ Publisher benchmark scores are not our measurements of quantized inference.
   and [Qwen3-4B configuration](https://huggingface.co/Qwen/Qwen3-4B/blob/main/config.json):
   conventional cache examples with 36 layers, 8 KV heads, dimension 128.
 - [Original GLM-4-9B-Chat configuration](https://huggingface.co/zai-org/glm-4-9b-chat/blob/main/config.json):
-  40 layers, 2 multi-query groups, KV dimension 128. Do not silently substitute
-  a similarly named newer checkpoint.
+  40 layers, 2 multi-query groups, KV dimension 128. This refers to the original
+  checkpoint, not later releases with similar names.
 - [GLM-4.7-Flash official model card](https://huggingface.co/zai-org/GLM-4.7-Flash):
   30B-A3B MoE, not an 8B dense model.
 - [Llama 2 paper](https://arxiv.org/abs/2307.09288):
@@ -27,8 +27,7 @@ Publisher benchmark scores are not our measurements of quantized inference.
 - [Attention Is All You Need](https://arxiv.org/abs/1706.03762):
   scaled dot-product and multi-head attention.
 - [GQA paper](https://arxiv.org/abs/2305.13245):
-  grouped-query attention and trained-model comparisons. Random correlations
-  from a toy script are not a substitute for these comparisons.
+  grouped-query attention and trained-model comparisons.
 - [FlashAttention paper](https://arxiv.org/abs/2205.14135):
   IO-aware exact attention with tiling. "Exact" describes the mathematical
   attention operation, not bit-for-bit identity across floating-point kernels.
@@ -37,8 +36,7 @@ Publisher benchmark scores are not our measurements of quantized inference.
   Q8_0 blocks store 32 signed bytes plus a 2-byte scale; Q4_0 blocks store
   16 packed bytes plus a 2-byte scale. The toy4 demo is not this encoding.
 - [llama.cpp context implementation](https://github.com/ggml-org/llama.cpp/blob/master/src/llama-context.cpp):
-  quantized V cache / FlashAttention compatibility handling. Behavior must be
-  read against the installed version; do not assume silent fallback.
+  quantized V cache / FlashAttention compatibility handling.
 
 ## Serving and API
 
@@ -69,6 +67,5 @@ The following were not established: sustained throughput, peak memory, GPU
 bandwidth, power limit, a cause for the slow first request, the effective
 FlashAttention state, comparative model quality, or an optimized setting.
 
-The repository's offline scripts are teaching tools. They are not GPU kernel
-benchmarks, implementations of a complete transformer, or quality evaluations
-of the actual deployed model.
+The offline scripts illustrate individual operations; their timings are not
+measurements of the deployed model.

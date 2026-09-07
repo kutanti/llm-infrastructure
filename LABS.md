@@ -1,205 +1,253 @@
-# Labs: learn first, tune second
+# Exercises
 
-Run commands from this repository. Labs 1-5 are offline and do not need Ollama.
-Labs 6-8 use an already-installed local server and model. No lab asks you to
-install another runtime, expose a port publicly, or execute generated code.
+Work from the repository directory. Exercises 1-5 run offline.
+For 6-8, follow [SETUP.md](SETUP.md) once.
 
-## Lab 1: why caching works
+Live commands below target port 11435 by default. Add
+`--url http://127.0.0.1:11434` if that is where your server runs.
+Choose a new result filename when repeating a command; the client will not
+overwrite an earlier run.
+
+## 1. Count the work the cache removes
+
+For 400 steps, calculate how many token rows pass through the K and V projections:
+first when every prefix is rebuilt, then when previous K/V rows are retained.
 
 ```powershell
 python 01_why_kv_cache.py
 ```
 
-Predict the number of K/V row projections for 400 steps before running:
-uncached `400 * 401 = 160,400`; cached `2 * 400 = 800`.
+Compare your counts with the output. Which work does the cache *not* remove?
 
-The output vectors should agree within floating-point tolerance.
-The speedup depends on NumPy, CPU scheduling, and matrix shapes.
+<details>
+<summary>Answer</summary>
 
-**Question:** does this make total attention work linear?
+Rebuilding prefixes requires `2 * (1 + ... + 400) = 160,400` row projections.
+Caching requires `2 * 400 = 800`.
 
-**Answer:** no. It removes repeated K/V projections. Every new query in ordinary
-full attention still reads the available history. This is not a token-generation
-benchmark and does not establish GPU tokens/s.
+Each new query still compares against the retained keys. The reduction concerns
+projection work, not all attention arithmetic. The script checks that its two
+ways of computing the attention outputs agree within floating-point tolerance.
 
-## Lab 2: budget the right layers
+</details>
+
+## 2. Decide whether Q8 cache is worth investigating first
+
+Qwen3.5-4B has 8 full-attention layers, 4 KV heads, and head dimension 256.
+Calculate their FP16 cache at 4,096 tokens for one sequence. Then calculate
+Q8_0 storage using 34 bytes per 32 values.
 
 ```powershell
-python 02_kv_cache_size.py --context 8192 --sequences 1
+python 02_kv_cache_size.py --context 4096
 python 02_kv_cache_size.py --context 8192 --sequences 2
 ```
 
-Before running, predict Qwen3.5-4B's full-attention FP16 cache:
-256 MiB for one sequence; 512 MiB for two independent sequences.
+How much would Q8 save at 4K? Would that explain our long first request?
+What does this table leave out?
 
-**Question:** why not use all 32 layers in this formula?
+<details>
+<summary>Answer</summary>
 
-**Answer:** only 8 are full-attention layers. The other 24 maintain recurrent
-state that must be accounted for separately. This is not proof of total memory
-fit. A 32K context advertised by a model is not a hardware memory guarantee.
+FP16: 128 MiB. Q8_0: 68 MiB. Saving: 60 MiB.
+At 8K with two independent sequences, the FP16 portion is 512 MiB.
 
-**Question:** what is the theoretical 4K FP16-to-Q8 saving for these layers?
+These calculations exclude the recurrent layers and runtime allocations.
+The baseline has a large load/prefill delay, with no evidence tying it to
+60 MiB of cache storage. Investigate those timings before choosing cache
+precision as the remedy.
 
-**Answer:** `128 - 68 = 60 MiB`, including Q8 block scales. Actual support and
-allocation behavior still need observation. A complicated tuning change for
-60 MiB is unlikely to be the first priority when startup dominates.
+</details>
 
-## Lab 3: quantization error is not an accuracy score
+## 3. Follow one rounding error
 
 ```powershell
 python 03_kv_quant_error.py
 ```
 
-Compare the synthetic median relative errors across query scales. Identify
-which reference is used: FP32 attention output, not generated text.
+The script compares synthetic attention outputs against FP32. Notice how errors
+change with query scale. Explain the difference between an error in K and an
+error in V. Why can't this table tell you how well a model writes Python?
 
-**Question:** can low error here prove the real model will solve a coding task?
+<details>
+<summary>Answer</summary>
 
-**Answer:** no. Error propagates through layers and can change token selection.
-The toy4 format is not the backend's actual packed `q4_0`. This lab illustrates
-mechanics, not a ranking of real quantizations.
+Changing K can change the attention weights; changing V changes the content
+being blended. Which matters more depends on the inputs.
 
-Design a real quality checklist before changing precision: valid syntax,
-correct edge cases, factual correctness, constraints obeyed, and no truncation.
+This script contains one attention operation, not the model's stack of layers
+or its token-selection loop. It also uses a toy four-bit-like encoding, rather
+than the runtime's packed Q4_0. A real quality comparison needs actual tasks
+and a scoring rule.
 
-## Lab 4: shared shelves, different questions
+</details>
+
+## 4. Ask two questions of the same keys
 
 ```powershell
 python 04_gqa_explained.py
 ```
 
-The two queries share exactly the same K and V but produce different weights.
+Both query heads use the same K and V. Before inspecting the printed output,
+predict whether their attention weights must match.
 
-**Question:** is MQA forced to make every query head look at the same tokens?
+<details>
+<summary>Answer</summary>
 
-**Answer:** no. The learned queries differ. Sharing K/V changes capacity and
-weight shapes, but does not force identical attention patterns. Quality claims
-require trained-model evaluations.
+They need not match because the queries differ. One query favors the first
+key; the other favors the second. GQA shares K/V projections without requiring
+the query heads to do identical work.
 
-## Lab 5: stream a weighted sum
+</details>
+
+## 5. Update a running softmax
+
+The first tile contains score 2 with value 10. The second contains score 4
+with value 20. Calculate the rescaling factor and final output using the
+equations in the guide.
 
 ```powershell
 python 05_flash_attention.py
-python 07_performance_budget.py --weight-gib 3 --bandwidth-gbs 100
 ```
 
-The streaming attention output should agree with the materialized result.
-The performance-budget inputs are illustrative, not specifications of this GPU.
+The script uses larger random arrays. Inspect which arrays its memory table
+counts, and which it does not.
 
-**Question:** if score workspace is tiled, is all inference memory constant?
+<details>
+<summary>Answer</summary>
 
-**Answer:** no. Persistent K/V and other states remain. The score-tile column
-also excludes other temporary storage and multiple simultaneously active tiles.
+The old accumulator is rescaled by `exp(2 - 4)`, about 0.1353.
+The output is `(0.1353 * 10 + 20) / (0.1353 + 1)`, about 18.808.
 
-**Question:** why can measured decode fall below the bandwidth-only bound?
+The storage table counts scores or score tiles. It excludes other kernel
+workspace and persistent K/V storage.
 
-**Answer:** compute, recurrent updates, cache traffic, unpacking, kernel launches,
-host work, and imperfect utilization were left out of the model.
+</details>
 
-## Lab 6: inspect the real deployment without changing it
-
-On the original laptop, start `C:\Projects\Qwen-Local\Start-Server.ps1` in
-another terminal only if its server is not already running.
+## 6. Explain the recorded first request
 
 ```powershell
-Invoke-RestMethod http://127.0.0.1:11435/api/version
-Invoke-RestMethod http://127.0.0.1:11435/api/ps | ConvertTo-Json -Depth 6
-nvidia-smi --query-gpu=name,memory.total,memory.used,utilization.gpu,temperature.gpu --format=csv
 python 06_read_inference_results.py
 ```
 
-If `/api/ps` is empty, the model may have expired from memory while the server
-remains healthy. If the endpoint is unreachable, check the server terminal and
-port; do not immediately reinstall. Port 11434 may belong to another instance.
+Account for the 102-second wait using the displayed durations. Then identify
+one conclusion supported by the data and one explanation that still needs
+another measurement.
 
-Distinguish reported model placement, GPU utilization, memory snapshots,
-and sustained performance. They answer different questions.
+<details>
+<summary>Answer</summary>
 
-**Question:** what explains the 102-second first output?
+The first request reports about 60.55 seconds loading and 41.37 seconds in
+prefill. Later requests show almost no load time.
 
-**Answer:** the recorded load time was about 60.55 seconds and reported prefill
-about 41.37 seconds. The record does not isolate the underlying reasons for
-those costs. Do not diagnose disk speed or compilation from the totals alone.
+That supports separating initial and warm requests. It does not tell us whether
+the initial prefill delay came from kernel initialization, memory pressure, or
+another cause. The original report did not isolate those mechanisms.
 
-## Lab 7: capture your own warm sequence
+</details>
+
+Now make your own sequential requests:
 
 ```powershell
 python 08_local_client.py --repeat 3 --tokens 192 --prompt "Explain prefill versus decode in six concise sentences." --save results\warm-sequence.json
 ```
 
-This issues sequential requests, not concurrent ones. It does not unload the
-model. The first request may load it; later requests may reuse both weights
-and a prefix. The output file will not overwrite an existing run.
+Compare `load_s`, `prompt_eval_s`, and `eval_s`. The first request may load
+the model; later requests may reuse both loaded weights and a processed prefix.
+Treat those conditions separately rather than averaging them together.
 
-Compare first output, load, wall time, and generated-token rate. Read the
-answers, not just the numbers. The script saves its requested settings and
-post-run model metadata. Record the server-level settings separately.
+## 7. Distinguish reserved context from actual input
 
-With thinking enabled, time to first generated content may not equal time to
-first answer. You can observe that explicitly:
+First change only the configured capacity:
+
+```powershell
+python 08_local_client.py --context 4096 --repeat 3 --tokens 192 --save results\capacity4k.json
+python 08_local_client.py --context 8192 --repeat 3 --tokens 192 --save results\capacity8k.json
+```
+
+The prompt is identical. Look at the saved `prompt_tokens` value: increasing
+capacity did not make the prompt longer. A changed capacity may reload or
+reallocate the runner, so compare the later requests separately.
+
+Next, hold capacity fixed and use different input lengths:
+
+```powershell
+python 09_make_retrieval_prompts.py
+python 08_local_client.py --context 8192 --tokens 16 --repeat 3 --prompt-file results\retrieval\short.txt --save results\short-input.json
+python 08_local_client.py --context 8192 --tokens 16 --repeat 3 --prompt-file results\retrieval\long.txt --save results\long-input.json
+```
+
+The generator supplies two warehouse inventories. Each has a target record in
+the middle, and both ask for its shelf number. The longer file has more
+distracting records. Record `prompt_tokens`, `prompt_eval_s`, `first_answer_s`,
+and whether the answer is correct.
+
+Verify that the actual input plus output fits the context. If your tokenizer
+or model differs and it does not, increase capacity for **both** conditions.
+
+The first request for each document and its exact repeats answer different
+questions. Compare the first encounters for input-length effects; inspect the
+repeats for prefix-reuse effects. For a stronger result, repeat the comparison
+in reverse order and investigate runner/prefix state rather than relying on
+a single pair.
+
+<details>
+<summary>Expected answer and interpretation</summary>
+
+Both documents identify shelf **42**. The target is supplied in the text;
+this is retrieval, not a test of memorized knowledge.
+
+The long document should produce a larger reported input token count. Timing
+can depend on prefix reuse and runner state, so report the observations rather
+than assuming a fixed ratio. Two documents are an exercise, not a long-context
+quality evaluation.
+
+</details>
+
+## 8. Put a time budget on an answer
+
+```powershell
+python 07_performance_budget.py --decode-tps 12 --tokens 240
+```
+
+The example uses 0.5 seconds to first output. Estimate completion time for
+240 tokens and 120 tokens. When would halving the output be a bad optimization?
+
+<details>
+<summary>Answer</summary>
+
+About 20.42 and 10.42 seconds, respectively:
+`0.5 + (tokens - 1) / 12`.
+
+Shortening helps only if the answer still meets the task. A missing explanation
+or truncated function is not an improvement. Check `done_reason` and read the
+output before comparing speed.
+
+</details>
+
+For thinking mode, measure first generated output and first answer separately:
 
 ```powershell
 python 08_local_client.py --think --tokens 512 --prompt "Explain why 17 times 23 is 391." --save results\thinking.json
 ```
 
-Do not compare this directly as a speed contest against a different prompt.
-Reasoning can consume the output budget without yielding an answer; the client
-reports that condition. A token cap is not a requirement to produce that many
-tokens. `done_reason=length` warns that the response may be incomplete.
+Reasoning can consume the token budget before an answer appears. The client
+records that condition. To compare thinking on/off, use this same prompt in
+both conditions and score the answers as well as their times.
 
-## Lab 8: plan a controlled comparison
+## Keep a short experiment record
 
-Use the same prompt and output limit. Record a baseline, then change one
-variable. The following context-capacity experiment is deliberately small:
-
-```powershell
-python 08_local_client.py --context 4096 --repeat 3 --tokens 192 --save results\ctx4k.json
-python 08_local_client.py --context 8192 --repeat 3 --tokens 192 --save results\ctx8k.json
-```
-
-This changes **configured context capacity**, not actual input length. It may
-reallocate or reload runner state. Treat the first request in each group
-separately. Take memory observations while each configuration is loaded.
-Do not claim it measures long-prompt quality or 8K prefill throughput.
-
-For a later input-length experiment, prepare fixed documents at several token
-lengths, hold `num_ctx` sufficient and constant, and ask the same retrieval
-question. Record actual prompt tokens and check the retrieved answer.
-
-### Experiments to postpone until the baseline is understood
-
-| Change | Required evidence before adoption | Rollback |
-| --- | --- | --- |
-| Q8 cache | Backend supports this hybrid; effective cache changes; quality remains acceptable | Restore FP16 and restart intended server |
-| FlashAttention | Effective state differs; compare matching workloads and memory | Restore previous setting and restart |
-| Two request slots | No unexpected offload; per-user latency and aggregate throughput recorded | Restore one slot |
-| Larger weight quantization | Record exact artifact/digest, placement and task scores | Request the previous model artifact |
-| Different runtime | Verify model/template support and preserve the original deployment | Return to original endpoint |
-
-The existing launcher explicitly sets FP16 cache and one slot. Changing an
-environment variable in a different terminal will not override it.
-Do not label a comparison "Q8 vs FP16" until logs confirm the effective setting.
-
-## Experiment record template
-
-Save your own records under the ignored `results` directory. Include:
+For each change, save:
 
 ```text
-Question:
-Hypothesis:
-Model tag and immutable digest:
-Runtime and driver:
+Question and single changed variable:
+Model digest / runtime / driver:
 Server settings and evidence they took effect:
-Request settings:
-Prompt suite and actual input/output token counts:
-Power mode / battery / background workload:
-Warm-up and prefix-reuse policy:
-Measured repetitions:
-First output / first answer / wall time / decode tokens per second:
-GPU memory measurement method and sampling interval:
-Quality rubric and failures:
-Decision, uncertainty, rollback:
+Prompt and actual input/output token counts:
+Warm-up and prefix-reuse conditions:
+Repeated timings and memory measurement method:
+Answer correctness / formatting / truncation:
+Decision and remaining uncertainty:
 ```
 
-A good result can be "no useful improvement." Do not keep a setting merely
-because its name sounds more advanced.
+Keep the previous configuration available. If a change saves little memory,
+adds latency, or harms the answers, returning to the baseline is a useful result.

@@ -1,281 +1,304 @@
-# Understanding local LLM inference and hosting
+# Why did the first answer take 102 seconds?
 
-This guide uses one running example: a local Qwen3.5-4B model served by Ollama
-on an RTX 4050 Laptop GPU with about 6 GiB VRAM. The principles generalize;
-the measured numbers do not automatically transfer to another machine.
+We loaded Qwen3.5-4B on a laptop with an RTX 4050 and asked:
 
-Read each section as: **mental model -> mechanics -> implications -> experiment**.
-Primary references are indexed in [SOURCES.md](SOURCES.md).
+> What is 17 * 23? Reply with only the integer.
 
-## 1. What are you actually hosting?
+The answer was `391`. Getting the first character took 101.96 seconds.
+Repeating the question took 0.19 seconds.
 
-You are not just opening a model file. You are running a service:
+The model and hardware did not change between those requests. Before replacing
+the model or adjusting GPU settings, we need to account for that difference.
 
-```text
-client -> HTTP server -> scheduler -> tokenizer/chat template
-       -> model runner -> CPU/GPU kernels -> sampler -> streamed response
-```
+## 1. Split the waiting time
 
-**Model weights** are the learned numerical parameters. **The tokenizer**
-maps text to token IDs. **The chat template** encodes roles and boundaries
-so the model can distinguish system instructions, user text, and its answer.
-**The runner** allocates memory and executes the model. **The scheduler**
-decides which requests can run now and which must wait.
-
-An analogy: a restaurant has a recipe book (weights), order tickets (tokens),
-a chef (the runner), a kitchen (the GPU), a host (the scheduler), and serving
-staff (the API). A faster recipe does not fix a queue at the door.
-
-Ollama provides packaging, model management, an API, and execution backends.
-llama.cpp provides inference machinery and tools with lower-level controls.
-LM Studio offers a desktop-oriented workflow. vLLM and SGLang emphasize serving
-features such as scheduling and batching, but hardware, OS, model, and version
-support must be checked. Switching servers is not automatically a speed upgrade.
-
-GGUF is a file format, not a model architecture or a precision level.
-CUDA is a GPU programming platform, not a guarantee that every model operation
-is efficient. A model can be fully on GPU and still run slowly.
-
-**On this laptop:** the teaching deployment uses port 11435 to avoid assuming
-ownership of an existing Ollama instance on port 11434. Model storage belongs
-to the server process, not the CLI client. Pointing a CLI at another port does
-not magically give that server access to the same model store.
-
-## 2. Tokens, prefill, and decode
-
-A token can be a word, part of a word, punctuation, whitespace, or another unit.
-There is no universal words-to-tokens ratio, especially for code and multilingual
-text. Use the tokenizer or runtime-reported token counts.
-
-For a causal language model, the central loop is:
+An inference request passes through several stages:
 
 ```text
-encode prompt -> process prompt -> predict next token
-              -> append token -> predict another -> ... -> stop
+wait for a slot
+    -> load the model if needed
+    -> process the prompt (prefill)
+    -> generate tokens (decode)
+    -> deliver the response
 ```
 
-**Prefill** processes the input prompt and initializes the model's state.
-Many prompt positions can be computed together using matrix operations.
-The causal mask prevents a position from reading future tokens.
-Backends can split a long prompt into chunks; it need not all be processed
-in one monolithic allocation.
+The server also tokenizes the input and applies a chat template. The template
+marks user messages, assistant messages, and other boundaries in the format the
+model expects. Tokens are the model's input units; a token can be a word,
+part of a word, or punctuation. Count them with the tokenizer or runtime,
+not by assuming a fixed number of characters per token.
 
-**Decode** produces subsequent tokens, usually one at a time per sequence.
-The next token depends on the previous result. A model cannot simply generate
-the entire answer in parallel without a different algorithm.
+Ollama reports separate load, prompt-evaluation, and generation durations.
+Our client records elapsed time until the first output and the end of the stream.
 
-Imagine reading a 20-page question once, then writing the answer one word at a
-time. Reading faster and writing faster are different optimizations.
+| Request | First output | Load | Prefill | Decode | Wall time |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Arithmetic, first load | 101.96 s | 60.55 s | 41.37 s | 3.45 s | 105.41 s |
+| Arithmetic, warm | 0.19 s | 0.004 s | 0.18 s | 0.23 s | 0.42 s |
+| Python function, warm | 0.40 s | 0.002 s | 0.28 s | 8.39 s | 8.78 s |
+| Explanation, warm | 0.56 s | 0.003 s | 0.47 s | 10.81 s | 11.37 s |
 
-The context budget includes the system message, chat-template tokens,
-conversation history, new prompt, generated reasoning, and answer. For example,
-3,000 input tokens plus 1,500 output tokens do not fit in a 4,096-token budget.
-Exact overflow/truncation behavior is backend-dependent; inspect it rather
-than silently losing early instructions.
+The prompt and decode durations above are reconstructed from the recorded
+token counts and rates. Run `06_read_inference_results.py` to see the calculation.
 
-**Thinking mode:** reasoning tokens consume time and memory too. A server can
-emit a thinking field before any visible answer. Distinguish time to the first
-stream event, first generated content, and first answer content. Our baseline
-requested thinking off.
+The first request spent about a minute loading, but that is only part of the
+delay. It also reported 41 seconds processing a 28-token prompt. That is an
+investigation target: the record does not tell us how much came from lazy
+initialization, kernel setup, memory pressure, or other work inside that stage.
 
-## 3. Attention and the KV cache, from a small example
+The later requests spent almost no time loading. Their wall time was mostly
+generation. Keeping the model resident addresses the first problem; it will
+not make an already-loaded model write a long answer faster.
 
-For a simplified single attention head:
+### Three meanings of "first output"
+
+A streaming endpoint can send metadata, then reasoning text, then an answer.
+Record these separately:
+
+| Metric | What the client has received |
+| --- | --- |
+| First event | Any parsed stream event |
+| First generated output | Reasoning or answer text |
+| First answer | Text in the answer field |
+
+Our baseline requested thinking off. With thinking on, an early stream event
+can make a request look responsive while the user is still waiting for an answer.
+The live client records all three timestamps.
+
+## 2. What the GPU does during prefill and decode
+
+During **prefill**, the model processes the prompt. Many prompt positions can be
+handled together using matrix operations. A causal mask prevents each position
+from reading tokens that come after it.
+
+During **decode**, the model predicts the next token, appends it to the sequence,
+and repeats. For a single request, the next step depends on the previous result.
+This gives the GPU much less parallel work than processing many prompt positions
+at once.
+
+For example, summarizing a long document into one sentence may spend most of its
+time in prefill. Writing a thousand-word explanation from a short question may
+spend most of its time in decode. Both can be described as "slow," but shortening
+the prompt helps only one of them.
+
+A rough estimate for answer time is:
 
 ```text
-q = current hidden state projected through Wq
-K = previous/current hidden states projected through Wk
-V = previous/current hidden states projected through Wv
-attention(q, K, V) = softmax(q K^T / sqrt(head_dim)) V
+time to finish = time to first answer + remaining answer tokens / decode rate
 ```
 
-Q asks a question, K contains labels used to judge relevance, and V contains
-the information to blend. These are learned vectors, not literal text labels
-or a conventional database key-value store.
+At 12 tokens/s, 239 tokens after the first take about 20 seconds. Streaming lets
+you read while they arrive; it does not remove that computation.
 
-Suppose two tokens receive attention scores 2 and 0, and their scalar values
-are 10 and 20:
+Ollama returns durations in nanoseconds:
+
+```text
+decode tokens/s = eval_count / (eval_duration / 1e9)
+prefill tokens/s = prompt_eval_count / (prompt_eval_duration / 1e9)
+```
+
+Use the rate for the stage you are investigating. Averaging a cold four-token
+request with a warm 500-token request produces a number with little practical use.
+
+## 3. Why the model remembers keys and values
+
+Consider a single attention head:
+
+```text
+q = current hidden state multiplied by Wq
+K = available hidden states multiplied by Wk
+V = available hidden states multiplied by Wv
+output = softmax(q K^T / sqrt(head_dim)) V
+```
+
+The query `q` is compared with the keys `K` to get relevance scores. Softmax
+turns those scores into weights. The output is a weighted blend of the values `V`.
+These are learned vectors, rather than labels or text stored in a database.
+
+With two scores, 2 and 0, and scalar values 10 and 20:
 
 ```text
 softmax([2, 0]) = approximately [0.881, 0.119]
 output = 0.881 * 10 + 0.119 * 20 = approximately 11.19
 ```
 
-The output is a weighted blend, not necessarily a selection of one token.
-Actual models have multiple heads, layers, residual connections, normalization,
-position information, and feed-forward networks.
+Now append another token. In causal inference, the earlier positions did not
+see that future token. Their keys and values are still usable, so recomputing
+them would repeat work. The **KV cache** retains them. Each new query reads
+the available cache and adds the new token's keys and values.
 
-### Why caching is valid
-
-In ordinary causal inference, an earlier token's representation does not gain
-information from future tokens. With the same prefix and positions, its K/V
-can be retained instead of recomputed each time. New queries consult those
-stored vectors. Ordinary decoding does not need to retain all old queries.
-
-At 100 tokens, the cache avoids rewriting 100 index cards. It does not mean
-the next query never reads those cards.
-
-For N steps, recomputing K and V for every prefix processes:
+For 400 steps, rebuilding both K and V for every prefix processes:
 
 ```text
-2 * (1 + 2 + ... + N) = N * (N + 1) token-row projections
+2 * (1 + 2 + ... + 400) = 160,400 token-row projections
 ```
 
-Caching processes `2 * N` token rows. But full attention still compares each
-new query to its available history. Its cumulative decode attention work
-remains quadratic in sequence length. The linear savings above apply to K/V
-projection work, not the entire model.
+Keeping the previous projections reduces this to `2 * 400 = 800`.
+The first Python lesson demonstrates that difference with predetermined random
+embeddings. It compares the attention outputs, not generated language.
 
-Run `01_why_kv_cache.py`. It feeds predetermined embeddings into a toy head
-and compares cached/uncached results. Its CPU timing is not a Qwen benchmark.
+The cache removes repeated projections, not the need to consult history.
+A new full-attention query still compares against the retained keys. Across
+N decode steps, those comparisons grow as `1 + 2 + ... + N`.
 
-### Not distillation
+### Caching is not distillation
 
-Distillation trains a student using a teacher's outputs or representations.
-The student often is smaller, but a different architecture is not mandatory.
-It can outperform the teacher on a narrow objective; a fixed quality loss is
-not part of the definition.
+Caching reuses work during inference. Distillation trains a student from a
+teacher's outputs or representations. The student often is smaller, but it need
+not use a different architecture.
 
-Caching changes execution, not training. Cache quantization introduces numerical
-approximation. Weight quantization changes stored parameter precision. GQA is
-a learned architecture choice. None of these terms is interchangeable.
+Two other terms will matter below: **weight quantization** stores model parameters
+at lower precision; **cache quantization** stores cached state at lower precision.
+Neither is another name for training a student.
 
-## 4. Where the memory goes
+## 4. Account for the 6 GB of VRAM
 
-Use a budget, not just the model's download size:
+The driver reported 6,141 MiB of total GPU memory. After each baseline request,
+it reported 3,829 MiB used. Ollama reported the model as `100% GPU`.
+
+Those counters have different meanings. Ollama describes model placement;
+the driver includes other allocations. Neither is a measurement of the peak
+memory used during a request.
+
+The budget looks like this:
 
 ```text
-GPU memory approximately =
-    resident weights
-  + conventional attention KV cache
-  + recurrent state, if the architecture has it
-  + temporary activations and compute buffers
-  + runtime/allocator overhead
-  + other GPU users
+resident model weights
++ full-attention KV cache
++ recurrent state, for architectures that use it
++ temporary activations and compute buffers
++ runtime and allocator overhead
++ other GPU applications
 ```
 
-System RAM is a separate budget: Windows, applications, host-side model data,
-memory-mapped pages, transfer buffers, and CPU-offloaded work compete there.
-VRAM and RAM are not one interchangeable fast pool. A page file is not a
-substitute for GPU memory, and low "free RAM" does not alone prove active paging.
+The model download was about 3.39 GB. That does not give us the rest of this
+budget. A package can include components not used simultaneously, and runtime
+buffers depend on the workload.
 
-### Units matter
+Use consistent units: a GB is one billion bytes; a GiB is `1024^3` bytes.
+6,141 MiB is about 5.997 GiB. System RAM is another budget entirely. CPU-offloaded
+work, host buffers, Windows, and other applications compete there; a large page
+file does not create more VRAM.
 
-`1 GB = 1,000,000,000 bytes`. `1 GiB = 1,073,741,824 bytes`.
-`1 MiB = 1,048,576 bytes`. The observed 6,141 MiB GPU capacity is about
-5.997 GiB, not 6.141 GiB.
+### Calculate a conventional cache
 
-The Ollama package was about 3.39 decimal GB, or 3.16 GiB. Package size,
-runner-reported residency, and driver-reported usage measure different things.
-Some packages contain components not simultaneously resident during text-only
-inference. Do not infer exact weight usage by subtracting unrelated counters.
-
-### Conventional attention cache formula
-
-For equal K and V head dimensions and unshared independent sequences:
+For layers with equal K/V head dimensions:
 
 ```text
 bytes = 2 * layers * KV_heads * head_dim * tokens * bytes_per_value * sequences
 ```
 
-For a model with different layer types or dimensions, calculate each relevant
-layer's storage and add the results. Allocation granularity, padding, sliding
-windows, shared prefixes, paged caches, and compressed latent representations
-can change the actual amount. The formula is not universal for every architecture.
+This counts the K/V tensors for independent sequences. It excludes allocator
+padding and temporary workspace. Architectures using sliding windows, compressed
+latent state, or recurrent layers require different accounting.
 
-For Qwen3-8B at 8,192 tokens and one sequence:
+Qwen3-8B provides a conventional example:
 
 ```text
-FP16: 2 * 36 * 8 * 128 * 8192 * 2 = 1,152 MiB = 1.125 GiB
-Q8_0 storage: 1,152 * (34/32) / 2 = 612 MiB
+2 * 36 layers * 8 KV heads * 128 dimensions * 8192 tokens * 2 bytes
+= 1,152 MiB in FP16
 ```
 
-The extra 2 bytes in a 34-byte block store an FP16 scale for 32 quantized values.
-Ignoring scales understates memory.
+Q8_0 stores 32 values in 34 bytes: 32 integer codes and a two-byte scale.
+For the same tensor shapes:
 
-### GQA: sharing keys and values
+```text
+1,152 MiB * (34/32) / 2 = 612 MiB
+```
 
-MHA uses separate K/V heads for each query head. MQA shares one K/V head across
-all query heads. GQA shares K/V within groups of query heads.
+This is why an estimate using exactly one byte per Q8 value is slightly low.
 
-With all else equal, 32 KV heads versus 8 means four times the cache.
-But two models with different layer counts cannot be compared solely by their
-KV-head counts.
+### Share K/V heads, not queries
 
-Two researchers can share the same books and still look up completely different
-facts. Shared keys do not force identical attention. Run `04_gqa_explained.py`
-to see exactly that. Random-weight correlations cannot establish model quality.
+In multi-head attention (MHA), each query head has its own K/V head.
+Grouped-query attention (GQA) lets several query heads share one K/V head.
+Multi-query attention (MQA) uses a single K/V head for all query heads.
 
-### Your Qwen3.5-4B is hybrid
+Hold layer count, dimensions, context, and precision fixed: reducing 32 KV heads
+to 8 cuts their storage by four. The query heads still differ. Two queries can
+use the same keys and assign them different weights, as lesson 4 demonstrates.
 
-Its text configuration has 32 layers: 24 Gated DeltaNet layers and 8 full-attention
-layers. The full-attention layers have 4 KV heads with head dimension 256.
+GQA is part of the learned architecture. Changing a flag does not convert an
+arbitrary MHA checkpoint into a trained GQA checkpoint.
 
-The recurrent layers maintain evolving state rather than the same growing
-per-token K/V arrays used by full attention. Think of a compact, continually
-updated summary versus a shelf with one card per token. This analogy does not
-mean the recurrent state is a human-readable summary or cost-free.
+## 5. Our model has a smaller attention cache than that
 
-For the full-attention portion only:
+Qwen3.5-4B has 32 text layers, but only **8 use full attention**. The other
+24 use Gated DeltaNet. They maintain recurrent state instead of the same
+growing per-token K/V arrays.
 
-| Context, one sequence | FP16 cache | Q8_0 storage arithmetic |
+Its full-attention layers have 4 KV heads, each with dimension 256:
+
+| Context, one sequence | FP16 K/V | Q8_0 K/V storage |
 | --- | ---: | ---: |
 | 4,096 | 128 MiB | 68 MiB |
 | 8,192 | 256 MiB | 136 MiB |
 | 16,384 | 512 MiB | 272 MiB |
 | 32,768 | 1,024 MiB | 544 MiB |
 
-This excludes recurrent state, checkpointing strategy, and other allocations.
-It also does not establish runtime support for quantized caches on this hybrid.
+These columns count only the eight full-attention layers. Recurrent state,
+checkpointing, and runtime buffers must be added separately. The Q8 column is
+storage arithmetic, not confirmation that a particular backend supports it
+for this hybrid model.
 
-At 4K, switching those K/V arrays to Q8 could save about **60 MiB**, not gigabytes.
-That is why "always enable Q8" is not a good first optimization for our deployment.
-Run `02_kv_cache_size.py --context 8192 --sequences 2` and inspect the change.
+At our 4K setting, switching those arrays from FP16 to Q8 would save **60 MiB**.
+That is a useful result: cache precision is probably not where we should start
+investigating a 102-second first response.
 
-## 5. Quantization: what changes and what does not
+Context and concurrency can change that decision. Two independent 8K sequences
+need twice the conventional cache of one. A long conversation also brings
+more history to process and read.
 
-FP16 and BF16 both use two bytes per value but have different precision/range
-tradeoffs. INT8 stores integer codes; a scale maps them back to approximate
-real values. FP4 and four-bit integer schemes are not the same representation.
+The context budget includes system instructions, template tokens, conversation
+history, the new prompt, generated reasoning, and the answer. A 3,000-token prompt
+plus a 1,500-token answer exceeds a 4,096-token budget. Check the runner's
+truncation behavior before assuming it retained the whole conversation.
 
-For a simple block, if scale is 0.1, a value 0.37 might become integer 4 and
-reconstruct as 0.4. You save storage but introduce error. Per-block scales,
-zero points, outlier handling, and mixed tensor precision change the result.
+Run lesson 2 with different `--context` and `--sequences` values. It uses the
+same storage calculations as this section.
 
-`Q4_K_M` describes a particular weight-quantization recipe, not "every value
-in the entire model uses exactly four bits." Metadata, unquantized tensors,
-and mixed-precision choices affect file size. `q8_0` for the cache is a separate
-setting; you can run Q4 weights with an FP16 cache.
+## 6. What lower precision buys
 
-Lower precision may reduce memory traffic, but decoding must unpack/dequantize
-the data or use suitable kernels. Faster is not guaranteed. A poorly supported
-format can lose to a larger, better-supported one.
+Suppose a block uses a scale of 0.1. The value 0.37 might be stored as integer
+4 and reconstructed as 0.4. Less storage, less precision.
 
-Small vector error can alter logits enough to change a chosen token. That token
-changes the next prefix, so later answers can diverge. Conversely, different
-text can still be equally correct. Cosine similarity of one toy attention
-output is not a language-model accuracy score.
+Real formats add choices about block size, scales, outliers, and which tensors
+use which precision. `Q4_K_M` is a weight-quantization recipe, not a statement
+that every stored value occupies four bits. FP16 and BF16 both occupy two bytes,
+but allocate their bits differently between range and precision.
 
-Run `03_kv_quant_error.py`. It explicitly labels its low-bit example as a
-toy format, includes multiple queries, and makes no end-to-end quality claim.
-The all-zero block case illustrates why quantization needs careful arithmetic.
+Our baseline combines **Q4_K_M weights and FP16 cache**. Those settings control
+different data. You can change one without changing the other.
 
-For a real comparison, evaluate the same tasks and include exact requirements,
-long-context retrieval, factual correctness, code edge cases, and formatting.
-Do not use "sounds fluent" as your only scoring rule.
+Lower-precision weights can reduce memory traffic during decode. The kernel
+still has to unpack the representation and perform the arithmetic, so the
+benefit depends on the implementation. For the cache, compare saved storage
+with the amount of cache the architecture has in the first place.
 
-## 6. FlashAttention: avoid an enormous temporary worksheet
+Quality needs a separate measurement. A small numerical change can alter the
+chosen token, which changes the prefix for the next step. Conversely, a different
+sentence can be equally correct. Vector similarity alone does not settle this.
 
-For unchunked full prefill, materializing attention scores produces an
-`N x N` matrix per head. At N=8,192, FP32 storage for one such matrix is
-256 MiB. This is temporary attention workspace, not the KV cache.
+Lesson 3 compares attention outputs for synthetic queries. Its Q8-like encoding
+illustrates block scaling; its toy4 encoding is explicitly not llama.cpp's
+packed Q4_0. Use it to understand rounding, then evaluate actual answers before
+choosing a format.
 
-FlashAttention tiles the computation and uses an online softmax so it need not
-write the full matrix to GPU memory. Real implementations use fast on-chip
-memory, fused kernels, and careful scheduling. A NumPy loop illustrates the
-math but not those hardware optimizations.
+For our coding prompt, a useful rubric would include an empty string, punctuation,
+mixed case, and a negative case such as `"hello"`. The generated answer supplied
+three positive assertions. That is not enough to establish general correctness.
 
-For scores arriving in blocks, keep:
+## 7. FlashAttention removes a temporary matrix
+
+Full prefill attention can materialize an `N x N` score matrix per head.
+At N=8,192, one FP32 matrix occupies 256 MiB. This is temporary workspace,
+separate from the persistent K/V arrays.
+
+FlashAttention processes tiles and maintains a running softmax, avoiding storage
+of the complete score matrix. Its GPU implementation combines that algorithm
+with on-chip memory and fused kernels.
+
+The running state for one query is:
 
 ```text
 m = largest score seen
@@ -283,247 +306,169 @@ l = sum of exp(score - m)
 o = sum of exp(score - m) * value
 ```
 
-When a new block raises the maximum to `m_new`, rescale the old accumulators:
+If a new tile raises the maximum, rescale the old accumulators:
 
 ```text
+m_new = max(m, largest score in new tile)
 correction = exp(m - m_new)
 l_new = correction * l + sum(exp(new_scores - m_new))
 o_new = correction * o + sum(exp(new_scores - m_new) * new_values)
-answer = o_new / l_new
+output = o_new / l_new
 ```
 
-This is like recomputing the units on your running tally, not discarding the
-previous blocks. The mathematical result is unchanged; floating-point order
-can cause small numerical differences.
-
-Run `05_flash_attention.py`. Its storage tables count score arrays/tiles only.
-Actual kernels also need Q/K/V tiles, accumulators, and occupancy-dependent
-workspace. Total model memory still grows with the context and other states.
-Inference layers need not retain every score matrix simultaneously.
-
-FlashAttention and quantized KV support are runtime- and architecture-specific.
-Current Ollama documents quantized KV with FlashAttention. Current llama.cpp can
-auto-enable required FlashAttention or report unsupported quantized V settings.
-Do not repeat the claim that all such flags are silently ignored. Check the
-installed version's logs and effective configuration, not just the environment.
-
-## 7. Read the actual baseline correctly
-
-Our first run reported:
-
-| Request | First output | Model load | Generation | Wall time |
-| --- | ---: | ---: | ---: | ---: |
-| Arithmetic, initial load | 101.96 s | 60.55 s | 1.16 tok/s | 105.41 s |
-| Same arithmetic, warm | 0.19 s | 0.004 s | 17.59 tok/s | 0.42 s |
-| Coding, warm | 0.40 s | 0.002 s | 10.25 tok/s | 8.78 s |
-| Explanation, warm | 0.56 s | 0.003 s | 14.15 tok/s | 11.37 s |
-
-Ollama durations are in nanoseconds. Convert by dividing by `1e9`.
+For example, the first tile contains score 2 with value 10. Its state is
+`m=2, l=1, o=10`. The next tile contains score 4 with value 20:
 
 ```text
-decode tokens/s = eval_count / (eval_duration / 1e9)
-prefill tokens/s = prompt_eval_count / (prompt_eval_duration / 1e9)
+correction = exp(2 - 4) = approximately 0.1353
+l_new = 0.1353 + 1
+o_new = 0.1353 * 10 + 20
+output = approximately 18.808
 ```
 
-The first request reported 28 prompt tokens at about 0.677 tokens/s:
-approximately **41.37 seconds of reported prefill**, in addition to model
-loading. We cannot attribute all 102 seconds to downloading or loading.
-Disk caching, lazy initialization, kernel setup, and memory pressure are
-possible contributors, not established diagnoses.
+This matches weighting the two values with `softmax([2, 4])`.
+Lesson 5 implements the single-query reduction in NumPy. It checks the math;
+it does not reproduce a GPU FlashAttention kernel.
 
-The four-token arithmetic answer is too short to represent steady decode speed.
-Combining coding and explanation as total generated tokens divided by total
-decode time gives about 12.4 tokens/s. This still is only two short samples.
+The full score matrix disappears, but the cache and other state remain.
+The tile itself is also only part of a kernel's workspace: it needs Q/K/V
+data, accumulators, and enough active work to occupy the GPU.
 
-Ollama reported 100% GPU residency. NVIDIA snapshots reported 3,829 MiB used
-out of 6,141 MiB after each request. Neither tells us the memory peak.
-"100% GPU" in `ollama ps` describes placement, not utilization, bandwidth,
-kernel efficiency, or freedom from CPU overhead.
+Ollama documents quantized KV cache alongside FlashAttention. Support differs
+by architecture and backend; check the effective settings in the installed
+runner's logs. Current llama.cpp can auto-enable required FlashAttention for
+quantized V cache or report an unsupported configuration.
 
-Run `06_read_inference_results.py` to reconstruct the durations offline.
+## 8. Investigate decode after startup
 
-### Quality also needs criticism
+The longer baseline answers generated at 10.25 and 14.15 tokens/s. Ollama
+reported full GPU placement, so unexpected CPU layer placement was not apparent
+in that run. Placement does not tell us whether the kernels used the GPU well.
 
-The arithmetic answer was correct. The generated palindrome function was
-plausible, but its assertions included no negative example. It was not executed.
-The explanation used exactly 120 whitespace-separated words despite a request
-for **under** 120. It also overstated architecture change as a requirement
-of distillation. A fluent explanation can contain subtle inaccuracies.
+For one sequence, decode often spends substantial time fetching weights.
+Prefill can reuse weights across many token positions; decode has less work
+to amortize each read.
 
-## 8. Design a trustworthy experiment
-
-Write a question before changing anything. Examples:
-
-| Question | Hold fixed | Change | Record |
-| --- | --- | --- | --- |
-| Does keeping the model loaded help? | Model, prompt, context | Loaded vs unloaded | Load time, first output |
-| Does longer context cost memory? | Model, precision, concurrency | Configured context, then separately actual prompt length | Memory, prefill, decode |
-| Does Q8 help this model? | Artifact, prompts, context | Effective cache precision | Memory, latency, quality |
-| Does concurrency help a service? | Model, task distribution | Simultaneous requests | Aggregate throughput, per-user latency, errors |
-| Is a larger quant worth it? | Evaluation tasks | Exact weight artifact | Quality, placement, first output, decode |
-
-Keep a stable prompt suite and record model digest, runtime, driver, settings,
-power conditions, and relevant background workloads. Mutable tags can change.
-Temperature zero and a seed reduce variation but do not guarantee identical
-results across kernels or software versions.
-
-Separate a warm-up from measured repetitions. Use at least several repetitions
-for small comparisons and alternate A/B order to reduce drift. Report the median
-and spread. Do not estimate a meaningful p95 from four requests.
-
-Prefix reuse is a confounder: repeating the same prompt may skip prefill work.
-Report reused-prefix and fresh-prefix cases separately. Unloading the model
-does not flush Windows' filesystem cache or reproduce a reboot-cold machine.
-
-Measure actual input length, not just `num_ctx`. Reserving 32K context and
-sending a ten-token question does not measure 32K prompt processing.
-
-Define an acceptable answer before benchmarking. A fast truncated answer or
-an incorrect JSON object is not a performance win. Pair speed with a task score.
-
-## 9. Why a fully loaded GPU may still be slow
-
-Decode often performs matrix-vector-like operations for one sequence. It may
-spend much of its time fetching weights rather than doing arithmetic. Prefill
-has more matrix-matrix work and can reuse weights across token positions.
-
-A simplified weight-bandwidth bound is:
+A deliberately narrow bandwidth bound is:
 
 ```text
-max tokens/s approximately <= available bytes/s / weight bytes read per token
+tokens/s <= available bytes/s / weight bytes read per token
 ```
 
-Assume, purely for illustration, 3 GiB read per token and 100 decimal GB/s:
-the weight-only bound is about 31 tokens/s. It omits KV reads, compute, recurrent
-updates, unpacking, kernel launch overhead, CPU work, and transfers. It is not
-a prediction for your GPU. Run `07_performance_budget.py`.
+Assume 3 GiB of weight traffic per token and 100 decimal GB/s of bandwidth:
+the result is about 31 tokens/s. These are example inputs, not measured laptop
+specifications. The bound omits cache reads, compute, recurrent updates,
+unpacking, host work, and kernel launches.
 
-A useful mental model is that execution is constrained by the larger of compute
-time and memory-transfer time, with further costs and imperfect overlap.
-Do not sum independently quoted peak FLOPS and bandwidth into a speed promise.
+Use lesson 7 to vary the inputs. Treat the result as a way to explain a possible
+limit, not a target the hardware must achieve.
 
-For MoE models, only some experts activate per token, but all required experts
-must be stored or fetched. Total parameters determine storage pressure; active
-parameters help describe work. Routing, expert reuse, and offloading matter.
+For MoE models, expert selection changes how much weight data is used per token.
+All required experts still need to be stored or fetched. Active parameter count
+describes only part of the cost. Similarly, CPU offloading is not a fixed slowdown:
+its effect depends on how much work is moved and where transfers occur.
 
-CPU offloading can add host computation and data transfer. Its cost depends on
-the amount and placement of work; it is not a universal five- or tenfold cliff.
-More system RAM can help avoid paging but does not create GPU bandwidth.
+### Choose the next measurement
 
-### Optimize the largest measured cost first
+| Observed problem | Next experiment |
+| --- | --- |
+| Slow loading, fast later requests | Compare loaded and unloaded requests; record load separately |
+| Slow processing of long prompts | Hold context capacity fixed and vary actual input length |
+| Slow long answers | Compare decode rates on longer fixed tasks and inspect GPU conditions |
+| Memory pressure | Reduce context or simultaneous requests before changing precision |
+| Many users waiting | Measure queue delay and completion rate under controlled arrivals |
 
-1. Correct the backend or unexpected CPU placement before exotic tuning.
-2. If startup dominates, preload/keep the model resident when appropriate.
-3. If answers are long, use a reasonable output budget and task-specific prompts.
-4. If prefill dominates, reduce irrelevant history and evaluate prefix reuse.
-5. If memory is limiting, reduce context or concurrency, then evaluate quantization.
-6. Only then compare backend/kernel settings or different model artifacts.
+A shorter answer is also an optimization when it still does the job. Reducing
+240 output tokens to 120 at 12 tokens/s saves roughly ten seconds. That can
+matter more to the user than a small kernel improvement.
 
-At 12 tokens/s, 240 generated tokens take about 20 seconds even with an immediate
-start. A useful 120-token answer can nearly halve that time. Streaming improves
-perceived responsiveness; it does not eliminate the token computation.
+## 9. Make comparisons you can trust
 
-Power mode, clocks, temperature, battery operation, and background GPU workloads
-can matter. Observe them. Do not assume a specific power limit or a fixed
-"throttle after ten minutes" rule.
+Change one variable, retain the original configuration, and use a fixed task
+suite. Record the model digest as well as its tag: a tag can point to a newer
+artifact later.
 
-## 10. From one chat to a hosted service
+Warm-up and measurement should be separate. Repeat each condition several times
+and report the median and spread. Alternate A/B order if clocks, temperature,
+or background activity might drift. Four requests do not support a useful p95.
 
-Single-user latency and total server throughput are different objectives.
+There are two different kinds of reuse:
 
-Suppose one request produces 12 tokens/s. Two concurrent requests might each
-produce 8 tokens/s: total throughput rises to 16, but each user waits longer.
-Or both metrics might get worse if memory pressure causes offloading.
-Those figures illustrate the tradeoff, not measured behavior here.
+**Loaded weights:** the model remains in memory, avoiding another load.
+**Cached prefix:** an already-processed prefix can avoid some prefill work.
 
-Batching can reuse weight reads across multiple sequences. Continuous batching
-lets a server admit and retire requests as generation proceeds. Prefill-heavy
-requests can interfere with decode; scheduling and chunked prefill affect fairness.
-Features differ across backends and versions.
+Repeating the exact prompt may get both. Unloading the runner does not clear
+Windows' filesystem cache, so it also does not reproduce a reboot-cold start.
+Label the conditions you created rather than calling every first request "cold."
 
-With no prefix sharing, conventional cache storage grows approximately with
-the sum of active sequence lengths. Configured parallel slots can reserve
-additional memory even before all slots are busy. Four 8K sequences are not
-the same memory budget as one 8K sequence.
+Keep input length separate from configured capacity. Reserving 8K context and
+sending a 20-token question measures neither 8K prefill nor long-context retrieval.
+The input-length lab supplies documents with known facts and records the runtime's
+actual prompt token count.
 
-A queue absorbs bursts, not unlimited demand. If requests arrive faster than
-the service can finish them, waiting time grows. Bigger queues can hide
-overload while making latency unacceptable. Set request limits, timeouts, and
-backpressure; handle overload responses explicitly.
+Read the outputs. Our explanation request asked for **under 120 words**; the
+answer contained exactly 120 whitespace-separated words. It also described
+architecture change as a requirement of distillation. Those are failures a
+tokens-per-second table would miss.
 
-For the teaching deployment, one parallel request is a deliberate baseline.
-Do not immediately set concurrency to CPU core count. CPU threads and GPU
-request slots are different controls.
+## 10. What changes when two people use the server?
 
-## 11. Operate the server deliberately
+With one slot, requests wait while the active request finishes. Consider a
+simple example: every request occupies the runner for ten seconds, and requests
+arrive at seconds 0, 4, and 8.
 
-The original deployment lives outside this repository:
+| Request | Arrives | Starts | Finishes | Queue wait | Total latency |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| A | 0 s | 0 s | 10 s | 0 s | 10 s |
+| B | 4 s | 10 s | 20 s | 6 s | 16 s |
+| C | 8 s | 20 s | 30 s | 12 s | 22 s |
 
-```text
-C:\Projects\Qwen-Local
-  runtime          portable runner
-  models           weight files
-  .home            local application/key data
-  results          recorded private runs
-  Start-Server.ps1
-```
+The model did not get slower. Waiting made the service slower. If arrivals
+continue every four seconds, a larger queue only postpones rejection.
 
-The server owns environment settings. Setting `OLLAMA_MODELS` or a cache type
-in a client terminal does not alter an already-running server.
+Batching can share weight reads across sequences. Continuous batching lets
+finished requests leave and new requests enter the active batch. This may
+improve total throughput while reducing each user's token rate.
 
-`$env:NAME = 'value'` affects the current PowerShell process and its children.
-`setx` changes future processes, not the current server, and persists outside
-the experiment. Prefer process-local settings for controlled learning.
-Restart the intended server when changing server-level settings.
+Suppose one request gets 12 tokens/s; with two active, each gets 8. The service
+now produces 16 tokens/s in total, but each individual answer takes longer.
+These numbers illustrate the tradeoff. More slots also require more state and
+can cause offloading when memory is tight.
 
-Our launcher explicitly sets FP16 cache and one parallel request. An external
-environment assignment will be overwritten by those lines. Inspect the launcher
-before claiming a flag took effect.
+That is why the baseline uses one parallel request. Increase it only with a
+workload that records both per-request latency and total completions, including
+queue waits and errors. CPU thread count is not a suitable default for GPU slots.
 
-Keep-alive controls how long the loaded model remains resident, not whether
-the HTTP server process survives. A model can unload while the server stays up.
-A server launched in an attached assistant session can terminate when that
-session ends; run the provided server command in your own terminal for continued use.
+## 11. Keep the server configuration understandable
 
-Use logs to confirm runner selection, placement, context, and supported features.
-For monitoring, distinguish allocation from active GPU utilization and use
-timestamped samples over the workload. Power and temperature samples explain
-conditions, not necessarily causation. Never disable security software simply
-to make a benchmark number larger.
+The server process owns its model store and runtime settings. The CLI and our
+Python client send HTTP requests to it. Each server uses its own configured
+model directory, even if both servers are running on the same laptop.
 
-Before installing a runtime, locate the existing executable, check its version,
-query its endpoint, and locate its model store. Our initial setup unnecessarily
-downloaded another runtime because discovery was incomplete. Model downloads
-should be reusable; avoid paying that cost for every experiment.
+The original deployment listens on port 11435. An existing Ollama installation
+may use port 11434. [SETUP.md](SETUP.md) shows how to identify the endpoint and
+use the installation you already have.
 
-## 12. Hosting safely and choosing the next skill
+In PowerShell, `$env:NAME = 'value'` affects that process and its children.
+It does not modify an already-running server. `setx` changes future processes
+and persists beyond the experiment, which makes it less convenient for A/B runs.
 
-Keep the raw inference API on loopback for a personal laptop. Local APIs often
-assume a trusted local client; CORS is not authentication. Do not expose a bare
-server on all interfaces or through a public tunnel for convenience.
+A launcher can override inherited settings. The original `Start-Server.ps1`
+explicitly sets FP16 cache and one request slot. To change those settings, edit
+the intended launcher and restart that server; an assignment in a client terminal
+will have no effect.
 
-For a real multi-user deployment, put authentication, TLS, request/body limits,
-timeouts, rate limits, and appropriate access logging in front of it. Protect
-logs: prompts, retrieved documents, and generated answers may contain private
-information. Local execution does not make an application automatically private
-if other components send data to cloud services.
+Keep-alive is about model residency, not the lifetime of the HTTP process.
+The server can remain available after unloading the model. Conversely, a server
+started inside a temporary terminal session can stop when that session closes.
 
-Generated text and code are untrusted output. Tool-calling capability does not
-authorize execution. Use allowlists, narrow permissions, explicit approvals,
-and isolation for tools. Do not run arbitrary model-produced shell commands.
+For a personal laptop, bind to loopback. Before serving other users, add
+authentication, TLS, request limits, timeouts, and overload handling in front of
+the inference API. CORS does not provide authentication. Treat prompt logs as
+private data, and treat generated code as untrusted text rather than an instruction
+to run it.
 
-Useful next topics, after a reliable baseline:
-
-| Technique | What it addresses | Important limitation |
-| --- | --- | --- |
-| Prefix caching | Repeated identical input prefixes | Requires compatible state/positions; consumes memory |
-| Paged KV allocation | Fragmentation and request scheduling | Does not erase live token storage |
-| RAG | Supplying relevant external facts | Retrieval adds work; irrelevant chunks inflate context |
-| Speculative decoding | Verify several proposed tokens together | Draft cost and acceptance rate decide the win |
-| Structured output | Constrain response syntax | Valid JSON can still contain false information |
-| Multi-GPU serving | Capacity or parallel computation | Communication overhead can outweigh gains |
-| Fine-tuning/LoRA | Adapt behavior to a task | Training is not a remedy for serving bottlenecks |
-
-There is no single "best optimization." A good result is a configuration that
-meets a stated quality target and latency target within your memory, power,
-and operational constraints. That is what the labs teach you to measure.
+For this deployment, start with the load/prefill split. Once repeated runs explain
+the slow start, use longer fixed answers to study decode. The calculations above
+give a concrete reason to leave cache quantization until memory is actually the
+constraint.

@@ -106,9 +106,15 @@ def main():
     parser.add_argument("--tokens", type=positive_int, default=256)
     parser.add_argument("--repeat", type=positive_int, default=1)
     parser.add_argument("--think", action="store_true")
-    parser.add_argument("--prompt", default="Explain KV caching in three concise sentences.")
+    prompt_group = parser.add_mutually_exclusive_group()
+    prompt_group.add_argument("--prompt", default="Explain KV caching in three concise sentences.")
+    prompt_group.add_argument("--prompt-file", type=Path, help="Read a UTF-8 prompt from a file")
     parser.add_argument("--save", type=Path)
     args = parser.parse_args()
+    if args.prompt_file is not None:
+        if not args.prompt_file.is_file():
+            parser.error(f"Prompt file not found: {args.prompt_file}")
+        args.prompt = args.prompt_file.read_text(encoding="utf-8")
     parsed = urllib.parse.urlsplit(args.url)
     if (parsed.scheme != "http" or
             parsed.hostname not in ("127.0.0.1", "localhost", "::1") or
