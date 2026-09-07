@@ -1,0 +1,74 @@
+{
+  "description": "Selected observations from the initial local Qwen run; not a general benchmark.",
+  "source_file": "baseline-20260907-222303.json",
+  "timestamp_utc": "2026-09-07T22:23:03Z",
+  "runtime_version": "0.33.3",
+  "model": "qwen3.5:4b",
+  "digest": "2a654d98e6fba55d452b7043684e9b57a947e393bbffa62485a7aac05ee4eefd",
+  "quantization": "Q4_K_M",
+  "context": 4096,
+  "thinking_requested": false,
+  "parallel_requests": 1,
+  "kv_cache_requested": "f16",
+  "gpu_capacity_mib": 6141,
+  "gpu_used_after_each_request_mib": 3829,
+  "ollama_reported_residency": "100% GPU",
+  "notes": [
+    "Memory values are NVIDIA snapshots, not a sampled peak.",
+    "The first request followed an unload; OS file caches were not cleared.",
+    "Later requests used the already-loaded model; prefix caching was not controlled.",
+    "This timestamp is the result filename timestamp, not the beginning of the run.",
+    "Answers were saved, not executed. Only arithmetic has an automated correctness comparison.",
+    "FlashAttention's effective state was not captured."
+  ],
+  "cases": [
+    {
+      "name": "arithmetic",
+      "first_output_s": 101.96260219998658,
+      "wall_s": 105.405922499951,
+      "load_s": 60.5467077,
+      "prompt_tokens": 28,
+      "prompt_tokens_per_s": 0.676797961523214,
+      "generated_tokens": 4,
+      "generation_tokens_per_s": 1.1596081799920623,
+      "done_reason": "stop",
+      "answer": "391"
+    },
+    {
+      "name": "arithmetic_warm",
+      "first_output_s": 0.19229270005598664,
+      "wall_s": 0.419827400241047,
+      "load_s": 0.0039085,
+      "prompt_tokens": 28,
+      "prompt_tokens_per_s": 155.080835885705,
+      "generated_tokens": 4,
+      "generation_tokens_per_s": 17.591928823055984,
+      "done_reason": "stop",
+      "answer": "391"
+    },
+    {
+      "name": "coding",
+      "first_output_s": 0.3986854995600879,
+      "wall_s": 8.78036259999499,
+      "load_s": 0.0024759,
+      "prompt_tokens": 50,
+      "prompt_tokens_per_s": 175.69751915103,
+      "generated_tokens": 86,
+      "generation_tokens_per_s": 10.252028232655237,
+      "done_reason": "stop",
+      "answer": "```python\ndef is_palindrome(text: str) -> bool:\n    cleaned = ''.join(c.lower() for c in text if c.isalnum())\n    return cleaned == cleaned[::-1]\n\nassert is_palindrome(\"\") is True\nassert is_palindrome(\"A man, a plan, a canal: Panama\") is True\nassert is_palindrome(\"No 'x' in Nixon\") is True\n```"
+    },
+    {
+      "name": "explanation",
+      "first_output_s": 0.5645029000006616,
+      "wall_s": 11.3739766003564,
+      "load_s": 0.00326,
+      "prompt_tokens": 48,
+      "prompt_tokens_per_s": 102.871618363441,
+      "generated_tokens": 153,
+      "generation_tokens_per_s": 14.15453308635986,
+      "done_reason": "stop",
+      "answer": "A transformer's KV cache is merely an optimization technique that stores intermediate key-value pairs to avoid redundant computation during inference, whereas model distillation involves training a smaller \"student\" model to mimic a larger \"teacher,\" fundamentally altering the model's architecture and weights.\n\nThe primary memory tradeoff of KV caching is increased RAM usage for stored states versus reduced computational latency; without it, recomputing keys and values would drastically slow down generation but save memory. Ordinary KV caching simply retains full-precision floating-point data in memory to speed up sequential token processing. In contrast, KV-cache quantization compresses this stored data into lower precision formats (e.g., INT8 or FP4) to significantly reduce memory footprint at the cost of introducing minor accuracy degradation during inference."
+    }
+  ]
+}
