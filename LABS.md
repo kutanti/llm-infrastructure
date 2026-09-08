@@ -1,5 +1,8 @@
 # Exercises
 
+These exercises focus on inference. For embeddings, gradient descent, and
+transformer data flow, start with [the foundations exercises](foundations/EXERCISES.md).
+
 Work from the repository directory. Exercises 1-5 run offline.
 For 6-8, follow [SETUP.md](SETUP.md) once.
 

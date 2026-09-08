@@ -1,5 +1,9 @@
 # Why did the first answer take 102 seconds?
 
+If tokens, neural-network weights, or training loss are unfamiliar, begin with
+[the foundations chapters](foundations/README.md). This investigation picks up
+once the basic prediction and learning loop makes sense.
+
 We loaded Qwen3.5-4B on a laptop with an RTX 4050 and asked:
 
 > What is 17 * 23? Reply with only the integer.

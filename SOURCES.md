@@ -4,6 +4,31 @@ Primary sources consulted on 2026-09-07. Web documentation
 and `main`/`master` branches are mutable; check the installed runtime's behavior.
 Publisher benchmark scores are not our measurements of quantized inference.
 
+## Learning and representation
+
+- [Dive into Deep Learning](https://d2l.ai/):
+  an open textbook covering linear algebra, optimization, neural networks,
+  attention, and language models, with executable examples.
+- [Neural Machine Translation of Rare Words with Subword Units](https://arxiv.org/abs/1508.07909):
+  subword segmentation with byte-pair encoding.
+- [The Illustrated Transformer](https://jalammar.github.io/illustrated-transformer/):
+  a visual walkthrough of the original encoder-decoder architecture.
+- [Training language models to follow instructions with human feedback](https://arxiv.org/abs/2203.02155):
+  instruction tuning and preference-based training.
+- [LoRA](https://arxiv.org/abs/2106.09685):
+  low-rank adaptation with frozen base weights.
+- [QLoRA](https://arxiv.org/abs/2305.14314):
+  adapter fine-tuning with a quantized base model.
+- [Direct Preference Optimization](https://arxiv.org/abs/2305.18290):
+  preference optimization without a separate reward-model/RL loop.
+- [Retrieval-Augmented Generation](https://arxiv.org/abs/2005.11401):
+  combining retrieval with a generative model.
+
+The foundations scripts are intentionally small: a hand-chosen representation
+example, a 68-parameter neural bigram learner, and one randomly initialized
+decoder block. The block uses sinusoidal positions and a ReLU feed-forward
+network rather than claiming to reproduce the deployed Qwen architecture.
+
 ## Model architecture
 
 - [Qwen3.5-4B official configuration](https://huggingface.co/Qwen/Qwen3.5-4B/blob/main/config.json):

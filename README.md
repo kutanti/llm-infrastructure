@@ -1,4 +1,24 @@
-# Running a local LLM on a 6 GB GPU
+# How language models learn, generate, and run locally
+
+Start with how a model turns text into numbers and learns to predict the next
+token. Then follow those computations into a real laptop deployment.
+
+## Start with the fundamentals
+
+The [foundations path](foundations/README.md) assumes basic Python and introduces:
+
+| Read | Work through |
+| --- | --- |
+| [Text and representations](foundations/01-text-and-representations.md) | Token IDs, embeddings, tensor shapes, logits, probabilities, and sampling |
+| [Learning from mistakes](foundations/02-learning-from-mistakes.md) | Neural layers, loss, gradients, backpropagation, and generalization |
+| [Inside a transformer](foundations/03-inside-a-transformer.md) | Positions, attention, causal masks, residuals, normalization, and feed-forward networks |
+| [From training to answers](foundations/04-from-training-to-answers.md) | Pretraining, instruction tuning, LoRA, distillation, RAG, tools, and evaluation |
+
+Three NumPy examples accompany the chapters. One trains a small next-token model;
+another exposes the operations inside an untrained transformer block.
+The [foundations exercises](foundations/EXERCISES.md) include worked answers.
+
+## Then investigate a real deployment
 
 The first Qwen3.5-4B request took **102 seconds** to start answering.
 The same question, asked again, started in **0.19 seconds**.
@@ -8,9 +28,7 @@ and which changes are worth trying next. The machine has an RTX 4050 Laptop
 GPU with 6,141 MiB VRAM, an i5-13420H, and 16 GB RAM. The model is
 `qwen3.5:4b`, Q4_K_M, served by Ollama.
 
-## Read
-
-Start with [the investigation](GUIDE.md). It uses the recorded run to explain
+[The investigation](GUIDE.md) uses the recorded run to explain
 loading, prefill, decode, KV caching, quantization, and request scheduling.
 [The exercises](LABS.md) let you calculate the memory costs and make your own
 requests. Answers are folded away so you can work through them first.
@@ -40,6 +58,15 @@ python -m pip install -r requirements.txt
 The offline examples need no model download:
 
 ```powershell
+python foundations\01_tokens_and_probabilities.py
+python foundations\02_train_a_small_model.py
+python foundations\03_transformer_block.py
+```
+
+After the foundations, the inference examples explore individual operations
+and read the recorded laptop run:
+
+```powershell
 python 01_why_kv_cache.py
 python 02_kv_cache_size.py --context 8192
 python 03_kv_quant_error.py
@@ -63,6 +90,7 @@ Pass `--url http://127.0.0.1:11434` for a server on Ollama's usual port.
 
 | File | Purpose |
 | --- | --- |
+| `foundations` | Four foundational chapters, three runnable examples, and exercises |
 | `01`-`05` | Small attention and memory examples |
 | `06_read_inference_results.py` | Reconstruct the initial run's timings |
 | `07_performance_budget.py` | Explore a weight-bandwidth bound |
