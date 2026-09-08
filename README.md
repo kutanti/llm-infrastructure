@@ -1,7 +1,36 @@
-# How language models learn, generate, and run locally
+# Local LLM Learning: From Tokens to a Running Model
 
-Start with how a model turns text into numbers and learns to predict the next
-token. Then follow those computations into a real laptop deployment.
+What happens between typing a prompt and receiving an answer?
+
+This repository builds up the answer: tokenization, embeddings, training,
+attention, and generation. Then it follows a real local deployment to understand
+where time and memory go.
+
+Start with basic Python. The fundamentals run on your CPU with NumPy; the local
+inference exercises use Ollama. No GPU or model download is needed for the first
+examples.
+
+## Try a model you can read in one file
+
+With Python 3.10 or newer:
+
+```powershell
+git clone https://github.com/kutanti/local-llm-learning.git
+cd local-llm-learning
+python -m pip install -r requirements.txt
+python foundations\02_train_a_small_model.py
+```
+
+The script trains a 68-parameter model to predict the next token in simple
+patterns such as `red blue red blue`. It prints the loss and learned
+probabilities, then generates a sequence.
+
+You can inspect every weight update. You can also see its limitation: it only
+reads the most recent token. The later transformer example shows how attention
+lets a prediction use more context.
+
+For the explanation behind each line, start with
+[Learning from mistakes](foundations/02-learning-from-mistakes.md).
 
 ## Start with the fundamentals
 
@@ -47,13 +76,7 @@ These are single observations. The four-token arithmetic answer is particularly
 poor evidence of sustained speed. The selected answers and metrics are in
 `data\qwen-baseline.json`; lesson 6 reads that file.
 
-## Run
-
-Use Python 3.10 or newer. Install NumPy if it is missing:
-
-```powershell
-python -m pip install -r requirements.txt
-```
+## More examples
 
 The offline examples need no model download:
 
@@ -102,3 +125,10 @@ Pass `--url http://127.0.0.1:11434` for a server on Ollama's usual port.
 Model files and runtimes are not part of this repository. New runs go in the
 Git-ignored `results` directory because they may contain private prompts.
 The client records generated code as text; it does not execute it.
+
+## Help improve the explanations
+
+If an exercise is unclear or a command fails, [open an issue](https://github.com/kutanti/local-llm-learning/issues)
+with the chapter, command, and what you expected to happen. For performance
+observations, include the model, runtime, and workload rather than a tokens/s
+number alone. Remove private prompts and credentials before sharing output.
