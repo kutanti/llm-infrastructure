@@ -237,6 +237,10 @@ accident in the first.
 
 ## 1.8 A practical diagnostic lab without new dependencies
 
+For an opt-in runnable profiler experiment, see
+[reading a projection trace](../pipeline/EXPERIMENTS.md#read-a-projection-trace).
+It keeps warm timing separate from profiler overhead and runs on CPU or CUDA.
+
 Use an existing workload and existing monitoring, or analyze the recorded
 [laptop case study](../GUIDE.md). No new GPU framework is required.
 

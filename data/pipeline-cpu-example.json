@@ -1,0 +1,55 @@
+{
+  "description": "One CPU teaching run; neither a quality success nor a hardware benchmark.",
+  "environment": {
+    "platform": "Windows x86-64",
+    "python": "3.11",
+    "torch": "2.8.0+cpu",
+    "intraop_threads": 2
+  },
+  "dataset_sha256": "9f35b3bd5f49450c54aa06aa64084e65d6d65bf7ac86563ecef2b03f7183f087",
+  "model": {
+    "dim": 64,
+    "heads": 4,
+    "layers": 2,
+    "max_seq_len": 256,
+    "mlp_ratio": 4
+  },
+  "training": {
+    "steps": 400,
+    "batch_size": 16,
+    "seed": 42,
+    "learning_rate": 0.003,
+    "initial_validation_loss": 5.565842371031712,
+    "final_validation_loss": 0.5411537839143489,
+    "elapsed_s": 62.02867569999944
+  },
+  "test_examples": 36,
+  "majority_baseline": {
+    "category": "billing",
+    "correct": 12,
+    "valid_json": 36
+  },
+  "fp32": {
+    "serialized_model_bytes": 610541,
+    "correct": 6,
+    "invalid_json": 16,
+    "mean_generation_latency_s": 0.0941494749994389,
+    "p95_generation_latency_s": 0.14934872499998164
+  },
+  "dynamic_int8": {
+    "engine": "x86",
+    "serialized_model_bytes": 272329,
+    "correct": 6,
+    "invalid_json": 16,
+    "mean_generation_latency_s": 0.14498797499961963,
+    "p95_generation_latency_s": 0.19097932499971648
+  },
+  "limitations": [
+    "Small synthetic template-held-out dataset, not real support tickets.",
+    "One generation pass per artifact; timings are not a repeated steady-state comparison.",
+    "Byte tokens are not comparable with the pretrained model's tokenizer tokens.",
+    "Only linear-layer weights are INT8; other weights and attention arithmetic are not.",
+    "Serialized model bytes exclude optimizer state, process memory, and runtime allocations.",
+    "Raw results and traces stay outside Git; this file contains selected non-private measurements."
+  ]
+}

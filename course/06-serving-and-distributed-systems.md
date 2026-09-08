@@ -305,6 +305,12 @@ can become transfer-bound.
 
 ## 6.8 Measure a service, not a favorable demonstration
 
+The [connected serving lab](../pipeline/README.md#serve-and-measure)
+provides open-loop and closed-loop clients with bounded in-flight work.
+Its tiny-model server deliberately has one generation slot; the Ollama client
+can exercise a separately configured runtime. Neither implements a new
+continuous-batching engine.
+
 Start with a reproducibility record: checkpoint revision, tokenizer and chat
 template, adapters, weight and KV formats, runtime version, hardware topology,
 context/output limits, sampling settings, prefix-cache state, and workload

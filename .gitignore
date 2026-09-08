@@ -14,3 +14,9 @@ results/
 *.zip
 *.exe
 *.log
+artifacts/
+checkpoints/
+.cache/
+*.pt
+*.pth
+*.onnx

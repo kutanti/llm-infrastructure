@@ -90,6 +90,10 @@ Two models of similar weight size can have very different long-context costs.
 
 ## 3. Logical length versus allocated capacity
 
+The [page-allocation exercise](../pipeline/EXPERIMENTS.md#make-cache-ownership-visible)
+implements bounded pages, reference counting, and partial-page copy-on-write.
+Its payloads are token IDs standing in for K/V, not GPU allocations.
+
 A runner may reserve a contiguous buffer for the maximum context before
 processing the first token. Another allocates blocks as sequences grow.
 Measured memory therefore need not rise one token at a time.

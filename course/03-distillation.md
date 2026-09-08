@@ -114,6 +114,11 @@ from its own inputs.
 
 ## 4. Distilling autoregressive text
 
+The [connected sequence-distillation lab](../pipeline/README.md#sequence-distillation)
+turns saved teacher responses into a student training split and preserves
+independent held-out labels. Unlike the soft-target classifier above, that path
+uses teacher-generated token sequences, not vocabulary-level KL.
+
 At token position t, both teacher and student predict a distribution given a
 prefix. Matching logits is straightforward only when vocabulary entries and
 token positions align.

@@ -4,6 +4,11 @@ The small experiments run from the repository root with NumPy.
 The larger capstones specify evidence to produce on your chosen training or
 serving stack. They are not claims that the course has already run those workloads.
 
+For supplied implementations, start with [the connected lab](../pipeline/README.md).
+Its synthetic routing task connects CPU transformer training, optional pretrained
+adaptation, teacher-generated targets, scoring, quantization, and local serving.
+The capstones below ask for broader evidence than that small exercise can provide.
+
 ## Lab 1: distinguish capacity from traffic
 
 You store 3 GiB of weights and assume they are read once per generated token.

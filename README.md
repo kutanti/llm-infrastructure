@@ -35,6 +35,12 @@ are collapsed by default; static images show the same ideas without motion.
 
 ## Run the small experiments
 
+For a connected implementation rather than isolated equations, use
+[the end-to-end lab](pipeline/README.md): generate a shared dataset, train a
+tiny transformer or adapt a pretrained model, score held-out outputs, compress
+an artifact, and measure a local service. The NumPy examples below remain
+independent of its optional PyTorch environment.
+
 Use Python 3.10 or newer. Install NumPy if it is missing:
 
 ```powershell
@@ -57,9 +63,11 @@ These CPU experiments expose the actual operations: explicit gradient updates,
 a frozen base with a learned adapter, soft-target distillation, and code/scale
 storage. No model downloads are needed.
 
-The GPU fine-tuning and distributed capstones require a separately selected
-training/serving stack and suitable hardware. The course supplies the procedure,
-calculations, and evaluation requirements, not a preconfigured GPU SFT runner.
+The [pretrained-model path](pipeline/HF.md) supplies an opt-in LoRA/QLoRA
+runner with pinned direct dependencies. Model downloads require explicit
+permission in its command line. See [environment boundaries](pipeline/ENVIRONMENTS.md)
+before installing a GPU stack. Distributed capstones still require additional
+multi-GPU implementations and hardware.
 
 ## Inference examples and case study
 
@@ -97,3 +105,7 @@ measurements. New runs go in `results`; generated code is recorded, not executed
 
 Primary references are in [SOURCES.md](SOURCES.md) and at the end of infrastructure
 chapters. [ERRATA.md](ERRATA.md) records corrections to the original draft.
+
+Original code, lessons, and visuals use the [MIT license](LICENSE).
+Referenced papers, downloaded models, dependencies, and external datasets retain
+their own licenses; this repository does not relicense those artifacts.

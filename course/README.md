@@ -37,6 +37,9 @@ only required package for the included training demonstrations.
 
 Do the [practical workbook](WORKBOOK.md) as you go. It contains calculations,
 small training experiments, and larger capstones with explicit deliverables.
+The [connected lab](../pipeline/README.md) now supplies dataset generation,
+training runners, scoring, sequence-distillation preparation, CPU INT8 export,
+and bounded local load generation for one shared task.
 
 ## Included experiments
 
@@ -73,9 +76,11 @@ examples and a client that records request timing.
 
 The included CPU experiments run as supplied. A real GPU SFT/QLoRA job requires
 a compatible checkpoint, dataset, CUDA-capable training framework, and enough
-memory. Chapter 2 provides the full experiment protocol and official framework
-references; this repository does not yet supply a version-pinned GPU training
-runner. Distributed training/serving capstones require suitable multi-GPU resources.
+memory. Chapter 2 provides the experiment protocol; the
+[HF runner](../pipeline/HF.md) implements the single-device adaptation path.
+Its dependency pins are not proof of compatibility with every GPU or checkpoint.
+Distributed training/serving capstones require additional implementations and
+suitable multi-GPU resources.
 
 Keep those boundaries visible in your own work. A numerical explanation, a
 working CPU example, a GPU training run, and a production service are different

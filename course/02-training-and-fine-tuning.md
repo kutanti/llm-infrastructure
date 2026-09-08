@@ -248,8 +248,11 @@ then record actual peaks for one forward/backward/update cycle before scaling.
 ## 7. A practical GPU fine-tuning lab
 
 This is the protocol for moving from the CPU adapter example to real SFT.
-It requires a separately chosen and installed GPU training stack; the course's
-NumPy examples do not install one or claim to perform this GPU job.
+The [HF adaptation runner](../pipeline/HF.md) implements the single-device path;
+[environment setup](../pipeline/ENVIRONMENTS.md) keeps its dependencies separate.
+The course's NumPy examples do not install a training framework or perform this
+GPU job. Running an offline tiny-model regression is also not a measured GPU
+fine-tuning result.
 
 1. Pin a small checkpoint revision, tokenizer revision, training-library versions,
    adapter targets, and dtype configuration. Confirm CUDA execution works.
