@@ -43,6 +43,20 @@ The derivative tells us how loss responds to a small change. It does not contain
 a symbolic instruction such as "multiply by three." Training discovers parameters
 through many numerical updates.
 
+![A loss curve with gradient-descent iterates approaching w=3; after two updates w=2.28 and loss=1.0368.](../assets/animations/gradient-descent.png)
+
+<details>
+<summary>Animate seven gradient-descent updates</summary>
+
+![Starting at w=1, each update subtracts 0.1 times the gradient; the orange point moves toward the minimum and the displayed loss falls.](../assets/animations/gradient-descent.gif)
+
+</details>
+
+The curve is `0.5 * (2w - 6)^2`, not a fitted illustration. The first move is
+`1 -> 1.8`, then `1.8 -> 2.28`. Notice that the steps shrink as the gradient
+approaches zero. The animation uses this one fixed example; real minibatch
+losses need not decrease at every step.
+
 ## A neural layer combines features
 
 A dense layer computes:

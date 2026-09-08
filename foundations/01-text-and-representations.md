@@ -13,6 +13,21 @@ becomes part of the input for the next step.
 
 What counts as a token, and where do those probabilities come from?
 
+```mermaid
+flowchart TD
+    text["Text prefix"] --> ids["Tokenizer: IDs [B, T]"]
+    ids --> embed["Embedding lookup: [B, T, D]"]
+    embed --> blocks["Position information and decoder blocks: [B, T, D]"]
+    blocks --> logits["Vocabulary projection: logits [B, T, V]"]
+    logits --> sample["Last-position logits -> probabilities -> choose next ID"]
+    sample --> append["Append ID to the logical sequence"]
+```
+
+`B` counts sequences, `T` token positions, `D` hidden features, and `V`
+vocabulary entries. A token ID indexes a row; it is not itself an embedding.
+The appended ID becomes input to the next generation step. With caching,
+extending the logical sequence need not recompute the whole prefix.
+
 ## A tokenizer assigns IDs
 
 A tokenizer turns text into a sequence of integer IDs using a fixed vocabulary

@@ -154,6 +154,23 @@ s: a configured scale, commonly alpha/rank
 ```
 
 W stays frozen. A and B are trainable.
+
+```mermaid
+flowchart LR
+    x["x: [N, d_in]"] --> base["Frozen W: [d_in, d_out]"]
+    x --> a["Trainable A: [d_in, r]"]
+    a --> b["Trainable B: [r, d_out]"]
+    b --> scale["Multiply by s"]
+    base --> sum["Add -> y: [N, d_out]"]
+    scale --> sum
+```
+
+The branches are added, not concatenated. Both produce `[N, d_out]`.
+For token activations, `N` can represent the flattened batch and sequence
+dimensions. Only the adapter parameters are updated in this projection;
+the frozen branch still participates in forward computation and in gradients
+with respect to its input.
+
 For a 4,096 by 4,096 matrix, full fine-tuning updates 16,777,216 values.
 Rank 8 trains `4096*8 + 8*4096 = 65,536`, a factor of 256 fewer for that matrix.
 
@@ -206,6 +223,22 @@ Do not interpret "four-bit training" as four-bit gradients and four-bit arithmet
 everywhere. Adapter weights, activations, gradient computation, and optimizer
 state have their own dtypes. The kernels and training library must support the
 model architecture and GPU.
+
+```mermaid
+flowchart TD
+    stored["Frozen low-bit base: codes + scales"] --> decode["Reconstruct weight tiles as needed"]
+    input["Activations x"] --> product["Base matrix operation"]
+    decode --> product
+    input --> adapter["Trainable higher-precision LoRA path"]
+    product --> sum["Add contributions -> loss"]
+    adapter --> sum
+    sum -.->|"backpropagation and optimizer update"| adapter
+```
+
+The dotted edge summarizes the adapter update, not an extra forward pass.
+No optimizer update returns to the stored base codes. A fused implementation
+can reconstruct tiles inside the matrix kernel rather than retaining an
+entire high-precision copy of the base weights.
 
 For a 6 GiB GPU, start with a small supported text model, short sequences, and
 microbatch size one. The appropriate checkpoint is a training choice, not

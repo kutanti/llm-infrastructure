@@ -29,6 +29,10 @@ The [infrastructure workbook](course/WORKBOOK.md) adds practical labs and four
 capstones: single-GPU inference, GPU adapter training, distillation plus
 quantization, and serving capacity under load.
 
+Diagrams are embedded in the chapters. The [visual index](assets/README.md)
+links to four step-by-step animations and the structural diagrams. Animations
+are collapsed by default; static images show the same ideas without motion.
+
 ## Run the small experiments
 
 Use Python 3.10 or newer. Install NumPy if it is missing:

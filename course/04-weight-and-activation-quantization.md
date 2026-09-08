@@ -40,6 +40,20 @@ may clip instead. Calibration chooses a compromise for the expected inputs.
 All-zero groups need explicit handling: dividing by zero is not a compression
 method. The quantization lab sets their codes and scales consistently.
 
+![Six original values mapped to a grid spaced 0.25 apart; 0.37 becomes code 1 and reconstructs to 0.25.](../assets/animations/quantization-grid.png)
+
+<details>
+<summary>Animate rounding onto a quantization grid</summary>
+
+![Orange points move from the original real values to their nearest represented values on a symmetric grid.](../assets/animations/quantization-grid.gif)
+
+</details>
+
+The horizontal displacement is rounding error; the vertical movement only
+separates the two number lines. This nine-code teaching grid is not INT4,
+NF4, or a GGUF format. All values are inside its range, so it demonstrates
+rounding but not clipping. Stored codes also need a scale to reconstruct values.
+
 ## 2. Granularity and outliers
 
 **Per-tensor** quantization uses one scale for a tensor.

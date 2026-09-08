@@ -68,6 +68,23 @@ X1 = X  + attention(norm(X))
 X2 = X1 + feed_forward(norm(X1))
 ```
 
+```mermaid
+flowchart TD
+    x["X: [1, 4, 8]"] --> n1["Normalize"]
+    n1 --> attn["Causal self-attention + output projection"]
+    attn --> add1["Add: X1 [1, 4, 8]"]
+    x -->|"residual: unchanged X"| add1
+    add1 --> n2["Normalize"]
+    n2 --> ffn["Feed-forward: expand, activate, project back to width 8"]
+    ffn --> add2["Add: X2 [1, 4, 8]"]
+    add1 -->|"residual: unchanged X1"| add2
+```
+
+Every residual addition combines tensors of the same shape. Attention can
+mix information across allowed positions; the feed-forward sublayer transforms
+each position separately using shared weights. The hidden expansion inside
+that sublayer does not change the block's input/output shape.
+
 The additions are **residual connections**. They provide a direct path for the
 input representation and gradients, while each sublayer learns an adjustment.
 They help optimization; they do not make every learned change useful.

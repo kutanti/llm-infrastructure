@@ -51,6 +51,26 @@ Thus the arrangement of the work matters, not just its total size.
 | Host RAM | CPU data, staging, offloaded tensors | Access crosses an interconnect for a discrete GPU |
 | Storage | Checkpoints and datasets | Loading is not GPU arithmetic |
 
+```mermaid
+flowchart TD
+    disk["Storage: checkpoint and dataset"] --> ram["Host RAM: loading and staging"]
+    ram -->|"host-to-device transfer, e.g. PCIe"| dram
+    subgraph gpu["Discrete GPU"]
+        dram["GDDR / HBM: device-memory capacity"] --> l2["L2 cache"]
+        l2 --> l1["SM-local cache path"]
+        l2 -->|"explicit tile staging"| shared["SM shared memory"]
+        l1 --> regs["Thread registers: operands and accumulators"]
+        shared --> regs
+        regs --> math["Arithmetic instructions"]
+    end
+```
+
+Read this as a schematic of places data can live, not a mandatory route for
+every load. Cache policies, direct-copy instructions, and GPU generations
+change the paths. Shared memory is explicitly managed by the kernel; it is
+not simply another automatic cache. Offloading moves the bottleneck across
+the host/device boundary rather than enlarging fast device memory.
+
 PCIe connects host and device; it is not another large register file. Suppose
 an illustrative system sustains 300 GB/s from device memory but only 12 GB/s
 for a particular host-to-device transfer. Moving 2 GB costs at least about

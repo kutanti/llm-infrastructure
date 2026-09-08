@@ -62,6 +62,22 @@ in parallel: those tokens depend on earlier samples.
 This shares weight reads and avoids waiting for the longest member.
 Positions, cache blocks, sampling state, and cancellations remain request-specific.
 
+![Two-slot schedules: fixed batches finish at iteration eight; continuous batching starts C in A's freed slot and finishes at iteration seven.](../assets/animations/continuous-batching.png)
+
+<details>
+<summary>Animate request arrivals into freed decode slots</summary>
+
+![A finishes after two iterations. Continuous batching admits C on iteration three, while fixed batching waits until B finishes on iteration five.](../assets/animations/continuous-batching.gif)
+
+</details>
+
+`C:2` means request C's second decode token. A column is one iteration across
+independent requests, not several successive tokens of one request. All four
+requests are available at the beginning; the animation omits prefill and uses
+equal-duration ticks to isolate scheduling. Its seven-versus-eight iteration
+count is not a measured speedup: real iteration cost changes with batch
+membership, context lengths, and mixed prefill work.
+
 Prefill complicates fairness. One large prompt can occupy the GPU long enough
 to interrupt all existing streams. **Chunked prefill** splits prompt processing
 into token ranges and schedules those ranges alongside decode work. Each
@@ -156,6 +172,17 @@ different requests. There is ordinarily no gradient synchronization. This
 raises fleet throughput and isolates queues, but does not make a too-large
 model fit on one replica.
 
+```mermaid
+flowchart LR
+    queue["Request router"] -->|"request A"| gpu0["GPU 0: complete model replica"]
+    queue -->|"request B"| gpu1["GPU 1: complete model replica"]
+    gpu0 --> outa["Response A"]
+    gpu1 --> outb["Response B"]
+```
+
+This is inference replication: there is no cross-replica gradient exchange.
+Each request still needs a replica with enough memory for its model and state.
+
 During training, **DistributedDataParallel**, or DDP, gives replicas different
 training examples and synchronizes gradients, usually through bucketed
 all-reduces. Each replica still holds model and optimizer state unless another
@@ -186,11 +213,36 @@ TP can make a layer fit and parallelize its compute. However, activation
 communication occurs repeatedly across layers. Latency-sensitive decode with
 small matrices can spend more time coordinating than it saves computing.
 
+```mermaid
+flowchart TD
+    x["Same X: [N, d_in] on both devices"] --> g0["GPU 0: X W_left -> [N, d_out/2]"]
+    x --> g1["GPU 1: X W_right -> [N, d_out/2]"]
+    g0 --> y["Concatenate output features -> Y: [N, d_out]"]
+    g1 --> y
+```
+
+This column-partition example assumes an even `d_out`. The final node describes
+the mathematical result: a following sharded layer may consume the pieces
+without physically gathering them. Row-partitioned products instead produce
+partial sums; those must be reduced, not concatenated.
+
 ### Pipeline parallelism
 
 **PP** puts consecutive groups of layers on different devices. Activations
 cross stage boundaries. Independent microbatches can occupy different stages,
 but a single token must still traverse the stages in order.
+
+```mermaid
+flowchart LR
+    input["Microbatch input"] --> s0["GPU 0: layers 0-7"]
+    s0 -->|"activations"| s1["GPU 1: layers 8-15"]
+    s1 -->|"activations"| s2["GPU 2: layers 16-23"]
+    s2 --> output["Output"]
+```
+
+Once stage 0 finishes one microbatch, it can work on another while stage 1
+processes the first. Three GPUs in this picture do not produce three
+consecutive tokens of the same autoregressive request simultaneously.
 
 In a simplified forward-only pipeline with `p` equal stages and `m`
 microbatches, utilization is approximately `m / (m + p - 1)`. Four stages

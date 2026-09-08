@@ -52,6 +52,26 @@ loss = (1 - lambda) * CE(hard_labels, softmax(z_s))
 compensates for temperature-related gradient scaling; its use is a convention
 of this objective, not a guarantee that all temperatures train equally well.
 
+```mermaid
+flowchart TD
+    input["Same aligned input prefix"] --> teacher["Frozen teacher -> z_t"]
+    input --> student["Trainable student -> z_s"]
+    teacher --> pt["p_t = softmax(z_t / T), stop gradient"]
+    student --> ps["p_s = softmax(z_s / T)"]
+    pt --> soft["Soft loss: T^2 * KL(p_t || p_s)"]
+    ps --> soft
+    student --> hard["Hard loss: CE at temperature 1"]
+    labels["Hard labels"] --> hard
+    soft --> mix["Weighted sum: lambda soft + (1-lambda) hard"]
+    hard --> mix
+    mix -.->|"update student only"| student
+```
+
+There are two student probability distributions: the softened one for teacher
+matching and the ordinary one for hard labels. The teacher contributes targets,
+not trainable parameters. For token-level matching, "aligned" means the
+positions and vocabulary entries refer to the same events.
+
 For fixed teacher probabilities, minimizing teacher/student KL has the same
 student gradient as minimizing cross-entropy with soft targets:
 

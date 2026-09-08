@@ -37,6 +37,22 @@ For ordinary full attention, a cache can have dimensions like:
 Physical storage may be transposed or paged to suit kernels. Never infer tensor
 layout merely from the conceptual axes.
 
+![At a five-token prefix, uncached execution computes five token rows of K/V; cached execution reuses four and computes one.](../assets/animations/kv-cache.png)
+
+<details>
+<summary>Animate prefill and three cached decode steps</summary>
+
+![Prefill creates K/V for three prompt tokens; each decode step reuses earlier rows and appends one, then the current query attends across the prefix.](../assets/animations/kv-cache.gif)
+
+</details>
+
+Orange tiles are newly computed K/V; green tiles are retained state. The blue
+read phase shows attention for the **last query only**. Prefill also computes
+earlier queries with their causal masks. Each new decode query still reads
+the retained full-attention history: caching projections does not eliminate
+that work. The last displayed word is the token being processed, not the next
+token sampled from its output.
+
 ## 2. Size it from the architecture
 
 For equal K/V widths across conventional layers:
@@ -94,6 +110,21 @@ Reference counting and cancellation handling matter. A disconnected client shoul
 not retain cache indefinitely, and a shared prefix must not be freed while
 another request still uses it.
 
+```mermaid
+flowchart LR
+    a["Request A: logical blocks 0, 1, 2"] -->|"0"| p0["Physical block 7: shared prefix"]
+    a -->|"1"| p1["Physical block 2: shared prefix"]
+    a -->|"2"| pa["Physical block 9: A-only suffix"]
+    b["Request B: logical blocks 0, 1, 2"] -->|"0"| p0
+    b -->|"1"| p1
+    b -->|"2"| pb["Physical block 4: B-only suffix"]
+```
+
+Here the first two logical blocks are full, compatible prefix blocks, so two
+requests reference four physical blocks rather than six. Logical order is
+not physical address order. Deleting A releases block 9; blocks 7 and 2
+remain live for B. Divergent suffixes cannot share the same writable state.
+
 ## 4. Prefix caching is not a conversation lookup by meaning
 
 Reusing computation requires compatible token prefixes and model configuration,
@@ -126,6 +157,18 @@ Q4_0: 0.5625 / 2 = 28.125%
 ```
 
 These ratios exclude runtime padding and auxiliary buffers.
+
+```mermaid
+flowchart LR
+    values["One block: 32 K or V scalars"] --> fp["FP16: 32 x 2 = 64 bytes"]
+    values --> q8["Q8_0: 32 code bytes + 2 scale bytes = 34 bytes"]
+    values --> q4["Q4_0: 16 packed code bytes + 2 scale bytes = 18 bytes"]
+```
+
+The block is a quantization group, not a cache-allocation page. Each arrow is
+an alternative storage choice for those same 32 scalars, not three copies
+that a runtime must retain. Lower storage does not by itself establish lower
+latency or acceptable attention error.
 
 K and V influence attention differently:
 
