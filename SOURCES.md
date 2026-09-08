@@ -4,6 +4,27 @@ Primary sources consulted on 2026-09-07. Web documentation
 and `main`/`master` branches are mutable; check the installed runtime's behavior.
 Publisher benchmark scores are not our measurements of quantized inference.
 
+## Infrastructure course
+
+The [course chapters](course/README.md) link their specific references alongside
+the explanations. Additional central readings:
+
+- [Distilling the Knowledge in a Neural Network](https://arxiv.org/abs/1503.02531)
+  and [sequence-level distillation](https://arxiv.org/abs/1606.07947):
+  distribution-based and generated-sequence teacher signals.
+- [PEFT documentation](https://huggingface.co/docs/peft/index):
+  practical adapter configuration and model compatibility.
+- [GPTQ](https://arxiv.org/abs/2210.17323),
+  [AWQ](https://arxiv.org/abs/2306.00978), and
+  [SmoothQuant](https://arxiv.org/abs/2211.10438):
+  different weight/activation quantization strategies.
+- [KIVI](https://arxiv.org/abs/2402.02750):
+  asymmetric low-bit KV-cache quantization, distinct from simple Q8_0/Q4_0 cache formats.
+
+The adapter and distillation labs train synthetic numerical models on CPU.
+They demonstrate gradients and objectives, not GPU training capacity or the
+quality of a fine-tuned language-model checkpoint.
+
 ## Learning and representation
 
 - [Dive into Deep Learning](https://d2l.ai/):

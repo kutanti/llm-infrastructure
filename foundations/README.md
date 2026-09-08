@@ -33,6 +33,8 @@ makes it easier to see which part of the problem each solves.
 
 The [exercises](EXERCISES.md) ask you to predict an output or change an input
 before looking at the answer. Each chapter also contains a worked calculation.
+Afterward, continue with [the infrastructure course](../course/README.md) for
+GPU systems, training, fine-tuning, distillation, quantization, caches, and serving.
 
 ## What you should be able to explain afterward
 
@@ -45,5 +47,5 @@ Then explain why generating a longer answer costs more time, why a longer
 conversation needs more state, and why making weights smaller does not
 necessarily make the model more accurate.
 
-That leads into [the laptop inference investigation](../GUIDE.md). Its
-102-second first response is a systems problem built on these computations.
+Use [the laptop inference investigation](../GUIDE.md) as a concrete case study.
+Its 102-second first response is a systems problem built on these computations.
