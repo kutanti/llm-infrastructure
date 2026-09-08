@@ -26,16 +26,18 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install CPU-only framework
-        run: python -m pip install --only-binary=:all: --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple -r pipeline/requirements-cpu.txt
+        run: >-
+          python -m pip install --only-binary=:all: --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple -r pipeline/requirements-cpu.txt
       - name: Install lesson and local HF dependencies
         run: python -m pip install -r requirements.txt -r pipeline/requirements-hf.txt
       - name: Run offline regression suite
         run: python -m unittest discover -s tests -v
       - name: Exercise original numerical labs
+        shell: python
         run: |
-          python 01_why_kv_cache.py
-          python 03_kv_quant_error.py
-          python 05_flash_attention.py
-          python -m course.demos.lora
-          python -m course.demos.distillation
-          python -m course.demos.quantization
+          import subprocess
+          import sys
+          for script in ("01_why_kv_cache.py", "03_kv_quant_error.py", "05_flash_attention.py"):
+              subprocess.run([sys.executable, script], check=True)
+          for module in ("course.demos.lora", "course.demos.distillation", "course.demos.quantization"):
+              subprocess.run([sys.executable, "-m", module], check=True)
