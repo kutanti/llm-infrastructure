@@ -154,6 +154,97 @@ shared cache for unrelated prefixes.
 For live measurements, use the input-length exercises in [LABS.md](../LABS.md).
 Keep configured capacity and actual input length as separate variables.
 
+## Lab 7: JEV decision probabilities and abstention
+
+Read the [JEV lesson](06-serving-and-distributed-systems.md#610-jev-typed-decisions-instead-of-generated-text).
+This is a paper-and-pencil exercise with **invented predictions**, not a JEV
+evaluation. No account, model download, or API call is required.
+
+A binary ticket-routing task asks whether a ticket needs specialist review.
+The labels below are independently assigned; `p` estimates the probability of
+the positive label, not the probability that an entire workflow is correct.
+
+| Ticket | Predicted p | True label y |
+| --- | ---: | ---: |
+| A | 0.9 | 1 |
+| B | 0.8 | 0 |
+| C | 0.4 | 1 |
+| D | 0.1 | 0 |
+
+1. Predict positive when `p >= 0.5`. Calculate accuracy and the binary Brier
+   score, `mean((p - y)^2)`; lower Brier score is better.
+2. Accept only decisions with `max(p, 1-p) >= 0.85`; send the rest to a human.
+   Calculate coverage (accepted/all) and accuracy among accepted decisions.
+3. Does this demonstrate calibration? What evidence is missing?
+
+<details>
+<summary>Worked answer</summary>
+
+The predictions are positive, positive, negative, negative: two of four are
+correct, so accuracy is 50%. The Brier score is
+`(0.01 + 0.64 + 0.36 + 0.01) / 4 = 0.255`.
+
+Only A and D are accepted: coverage is 50%, with 100% accuracy on two accepted
+cases. That does not establish a reliable operating point or calibration.
+The rejected cases still require work; report their volume, cost, and latency.
+
+Calibration asks whether events assigned similar probabilities occur at about
+that frequency. Four cases cannot establish this. Use a larger independent
+test set, reliability bins with sample counts, Brier/log-loss metrics, and
+slice results. Select thresholds on validation data, not the test set.
+Recheck after changes in traffic, labels, question wording, or model version.
+
+</details>
+
+**Deliverable:** the calculations plus a threshold policy that names the
+false-positive and false-negative costs, escalation path, and evaluation split.
+Typed output alone must never authorize an action.
+
+## Lab 8: LAYA serving budget and a fair comparison
+
+Read the [LAYA lesson](06-serving-and-distributed-systems.md#611-laya-local-typed-decision-inference).
+These **hypothetical timings** describe a decision pipeline, not measured LAYA
+or JEV performance. No additional software is required.
+
+Assume a request spends 4 ms in validation/tokenization, 6 ms queued,
+20 ms in model computation, and 5 ms in transport/serialization.
+Twenty percent of requests then require a sequential 200 ms fallback.
+
+1. Compute base completion latency and mean latency including fallback.
+2. If model computation alone becomes twice as fast, what is the new mean?
+3. Can these means determine p95 latency or sustainable throughput?
+4. Design a comparison between local LAYA, hosted JEV, and a generative model
+   returning the same decision schema.
+
+<details>
+<summary>Worked answer</summary>
+
+Base completion takes `4 + 6 + 20 + 5 = 35 ms`. Mean latency including fallback
+is `35 + 0.2 * 200 = 75 ms`. Halving model time produces
+`4 + 6 + 10 + 5 + 40 = 65 ms`, a roughly 13.3% mean-latency reduction,
+not a twofold whole-service speedup.
+
+Means alone do not determine tail latency or capacity. Under the deliberately
+fixed two-point timing assumptions, 80% finish at 35 ms and 20% at 235 ms,
+so p95 is 235 ms before optimization; real queues and variable service times
+require per-request measurements. The inverse of mean response latency is not
+a general concurrent-service throughput estimate.
+
+Use the same permitted, held-out inputs, labels, output types, and error-cost
+policy. Report accuracy and calibration, accepted coverage, fallback quality
+and cost, p50/p95 completion latency, failures, and successful decisions/second.
+Record input length, number of questions/options, batch size, arrival rate,
+hardware, precision, revisions, and cold/warm state. Separate local model-only
+time from client-observed API time. Do not use output tokens/second as the
+common metric for models that do not generate output tokens.
+
+</details>
+
+**Deliverable:** a comparison table with a source for every claimed measurement
+and explicit "not measured" entries where you lack access. The existing
+connected lab does not implement JEV or LAYA clients; a live extension needs
+separate integration and authorization, not a changed Ollama model name.
+
 ## Capstone A: a repeatable single-GPU inference experiment
 
 **Question:** which configuration meets a stated task-quality and response-time
