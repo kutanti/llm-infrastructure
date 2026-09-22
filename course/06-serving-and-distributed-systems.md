@@ -357,6 +357,198 @@ Readiness means the intended model can accept work, not merely an open port.
 Use bounded startup, health checks, graceful draining, rollback, and explicit
 versioning to preserve both reliability and repeatability.
 
+## 6.10 JEV: typed decisions instead of generated text
+
+**Learning goals:** choose an appropriate decision type, interpret its
+probabilities, and design an escalation policy without confusing confidence
+with correctness. Prerequisites are the
+[probability foundations](../foundations/README.md) and this chapter's
+latency and deployment sections.
+
+**Evidence boundary, researched 2026-09-22:** TypeSafe calls Jev a "System One"
+model. The verified [official SDK][jev-sdk] and [integration guidance][jev-guide]
+establish a hosted typed-decision interface, not its internal architecture.
+The sources here are pinned snapshots; SDK versions are not model versions.
+No JEV or LAYA benchmark was run for these lessons.
+
+### Lesson A: replace an open answer with a bounded question
+
+A generative model predicts output tokens; a structured-output mode can
+constrain those tokens to a schema. Jev instead exposes questions with typed
+answers and probabilities. From the client's perspective, the result is a
+decision rather than a stream of generated prose. That interface alone does
+not reveal how the remote model computes it.
+
+The request contains a **state**, a model identifier, and named **questions**.
+State can be text or structured JSON. Consider a fictional support ticket:
+"I was charged twice and need help." The application could ask:
+
+| Question type | Example question | Meaning of the answer |
+| --- | --- | --- |
+| `choice` | Which queue: billing, technical support, or other? | A winning label plus a distribution over the supplied alternatives |
+| `score` | Urgency: routine, soon, or immediate? | An expected level over ordered, zero-indexed criteria, with its distribution |
+| `noul` | Does the ticket describe a billing issue? | A probability that the stated condition is true |
+
+These are the [SDK's defined types][jev-schema], not three chat prompts that
+ask the model to write a number. Include clear descriptions and an "other"
+option when the label set would otherwise force an unsuitable choice.
+
+For an illustrative urgency distribution `[0.2, 0.5, 0.3]`, the expected score
+is `0*0.2 + 1*0.5 + 2*0.3 = 1.1`. This is not a fourth category, nor a 110%
+probability. Using the expectation treats adjacent levels as equally spaced;
+inspect the distribution when that convention does not match business costs.
+A `noul` value of 0.8 means predicted probability of truth, not "80% urgency."
+
+### Lesson B: separate prediction, calibration, and policy
+
+An answer that conforms to a type can still be wrong. A probability near one
+can be wrong too. **Calibration** means that, over appropriate collections of
+cases assigned similar probabilities, observed event frequency agrees with
+those probabilities. It is a population property, not a guarantee for one case.
+
+Evaluate against independent labels using accuracy, Brier score or log loss,
+and reliability bins with counts. Check task, language, and rare-class slices;
+an aggregate score can hide a costly failure mode. Do not treat a field named
+`confidence` as a measured correctness rate without verifying its definition.
+
+The application owns the action policy. It can accept a sufficiently supported
+decision, request missing evidence, or escalate. Choose thresholds on validation
+data using error costs, then report held-out quality and **coverage**: the
+fraction of requests handled without escalation. Include escalation latency
+and cost, rather than reporting only the easy accepted requests.
+
+Authorization and deterministic business constraints remain outside the model.
+A confident billing classification must not itself authorize a refund.
+Treat input documents as untrusted data, validate returned labels and ranges,
+and define failure handling for timeouts, missing answers, or changed schemas.
+
+### Lesson C: reason about a hosted service without inventing internals
+
+Record the requested model identifier, SDK version, question definitions, and
+evaluation date. The inspected SDK defaults to the mutable alias `jev-latest`;
+record a stable model identifier where the service exposes one, or explicitly
+state that exact model reproducibility is unavailable.
+
+Measure client-observed completion latency, successful decisions/second,
+failures, and cost under bounded authorized load. Network, queueing, and retries
+belong to that service measurement; output tokens/second is not the relevant
+common denominator. Do not assume several questions have constant cost merely
+because they share a request.
+
+The inspected public sources do **not** establish Jev's backbone, parameter
+count, training data/objective, attention layout, or weight availability.
+Do not apply the decoder KV formula from Chapter 5 to an unknown backend or
+repeat an unverified training-algorithm claim. The SDK's MIT license covers
+client code, not model weights or self-hosting rights. Hosted use also requires
+checking service terms and obtaining permission before sending data.
+
+**Checkpoint:** can you explain why a valid answer, a confident answer, and an
+authorized action are different? Complete
+[Lab 7](WORKBOOK.md#lab-7-jev-decision-probabilities-and-abstention) for worked
+Brier-score and abstention calculations.
+
+## 6.11 LAYA: local typed-decision inference
+
+**Learning goals:** trace a local decision model, budget its input and batch
+work, and compare it fairly with a hosted service. Read section 6.10 and
+[distillation](03-distillation.md) first.
+
+**Evidence boundary:** this lesson examines Convai Innovations' Laya source
+package 0.3.5 at the pinned [implementation snapshot][laya-source]. The package
+declares Apache-2.0 source licensing and includes a loader for published
+checkpoints. Checkpoint cards and weight-license files could not be fetched
+during this research; verify those separately before downloading or deploying.
+Source availability does not prove complete training-data provenance.
+
+### Lesson A: trace state through an encoder and decision heads
+
+Laya offers the same three question-type names: `choice`, `score`, and `noul`.
+Similar concepts do not establish drop-in API compatibility: returned metadata,
+confidence definitions, validation, and failure behavior must be checked.
+
+The inspected [input builder and model][laya-common] and
+[inference implementation][laya-agent] follow this path:
+
+```text
+state + question + option descriptions
+    -> one token sequence per question
+    -> batch/pad those sequences
+    -> bidirectional encoder + question-type information + head layers
+    -> score option-marker representations
+    -> probability post-processing and typed answers
+```
+
+The implementation also contains an action head. Its output is model metadata,
+not application authorization. Publisher checkpoint descriptions identify
+ModernBERT and multilingual mmBERT variants; these are Laya details, not evidence
+about Jev's architecture.
+
+The distinction from autoregressive serving is operational: this inspected path
+has no generated-token decode loop or growing generation KV cache. It still
+needs model weights, activations, attention computation, and workspace. "No
+decode loop" does not mean "no attention memory" or constant cost for long input.
+
+**One batched forward call does not mean one shared encoding of the state.**
+The implementation constructs a sequence for each question, repeating state.
+Eight questions can therefore mean eight encoded sequences. Padding and
+sequence length affect the work; batching can improve utilization without
+making those extra questions free.
+
+Question and option text also consume the token budget. The input builder
+truncates option descriptions and fits state into the remaining capacity.
+Inspect the constructed inputs: truncation can remove decisive evidence or
+make distinct options look alike. Increasing a configured length beyond the
+checkpoint's supported limit is not a correctness fix.
+
+### Lesson B: distinguish a published recipe from a fully reproduced model
+
+The repository's [specialist fine-tuning notebook][laya-training] constructs
+soft targets from the `LocalLLaMA/typed-decisions` training split. It combines
+noisy-logit policy-gradient training with soft-target cross-entropy; it is not
+accurate to describe that recipe as only reinforcement learning.
+
+For target distribution `q` and model probabilities `p`, soft cross-entropy
+is `-sum(q_i * log(p_i))`. This teaches distribution matching, as in the
+distillation chapter. It does not establish that the target distribution is
+correct or calibrated on a new workload. The notebook is evidence of a
+fine-tuning procedure, not a verified end-to-end reproduction of every released
+checkpoint, and not proof that Laya was distilled from Jev.
+
+Laya's `choice`/`score` confidence is normalized inverse entropy in the inspected
+source: a concentrated distribution receives higher confidence. Concentration
+is not empirical accuracy. Temperature post-processing changes concentration;
+the source also warns about uncalibrated buckets when extreme temperatures
+are clamped. Evaluate the exact deployed revision rather than inheriting a
+calibration claim from a different artifact.
+
+### Lesson C: budget residency and measure the whole workflow
+
+The optional [router][laya-router] selects among checkpoints and by default
+keeps one resident, evicting by least-recent use. Switching models can incur
+cold-load work. Preloading trades memory for latency; record loaded checkpoint
+identity, precision, device, input length, question count, and cold/warm state.
+Do not mix the general model, multilingual model, and fine-tuned specialist
+into a single unnamed benchmark row.
+
+The publisher's [research notes][laya-research] explicitly say Jev was not run
+in that project: the comparison imports third-party results with different
+prompts and sample sizes. It therefore does not establish a matched JEV-versus-
+LAYA speed or quality advantage. A specialist evaluated after training on a
+benchmark's training split is also not the base model's zero-shot result.
+
+Compare the same held-out task, labels, decision schema, and acceptance policy.
+Report correctness, calibration, coverage, fallback cost, completion-latency
+distributions, failures, memory, and successful decisions/second. Separate
+device-only time from local preprocessing and from client-observed hosted API
+time. A small local classifier or rules baseline may already solve the task;
+include one before attributing value to a more complicated model.
+
+**Checkpoint:** why can increasing question count or switching language make
+latency worse without any token generation? Complete
+[Lab 8](WORKBOOK.md#lab-8-laya-serving-budget-and-a-fair-comparison) for a worked
+latency budget and comparison protocol. Both new labs are offline reasoning
+exercises; this repository does not ship JEV or LAYA integrations.
+
 ## Exercises
 
 <details>
@@ -391,6 +583,36 @@ choose the winner.
 </details>
 
 ## Primary references
+
+### JEV and LAYA research snapshots
+
+Consulted 2026-09-22. These primary code sources were accessible; the product
+websites and Hugging Face checkpoint cards were not. Consequently the lessons
+bound their claims to the SDK, implementation, and published research notes,
+not an independently reproduced model evaluation.
+
+- [TypeSafe Python SDK 0.7.1][jev-sdk], especially its [answer schemas][jev-schema]:
+  hosted typed-decision contract and client licensing.
+- [TypeSafe integration guidance][jev-guide]: intended usage and the distinction
+  between typed output and truth.
+- [Laya 0.3.5 source][laya-source], [model/input construction][laya-common],
+  [inference][laya-agent], and [routing][laya-router]: local computation and
+  residency behavior.
+- [Laya specialist training notebook][laya-training] and
+  [research notes][laya-research]: published training procedure and explicit
+  limits on cross-provider comparisons.
+
+[jev-sdk]: https://github.com/typesafe-ai/typesafe-sdk-python/tree/0ffd094c72ed9445223060b24ffd7a56aa781fb4
+[jev-schema]: https://github.com/typesafe-ai/typesafe-sdk-python/blob/0ffd094c72ed9445223060b24ffd7a56aa781fb4/src/typesafe_sdk/_schemas/models.py
+[jev-guide]: https://github.com/typesafe-ai/skills/blob/65a39f393687675ce170e6094757de20370365b9/skills/typesafe-ai/SKILL.md
+[laya-source]: https://github.com/NandhaKishorM/laya/tree/573e5b62696ba441230cd6be71d593331b5d23af
+[laya-common]: https://github.com/NandhaKishorM/laya/blob/573e5b62696ba441230cd6be71d593331b5d23af/laya/common.py
+[laya-agent]: https://github.com/NandhaKishorM/laya/blob/573e5b62696ba441230cd6be71d593331b5d23af/laya/agent.py
+[laya-router]: https://github.com/NandhaKishorM/laya/blob/573e5b62696ba441230cd6be71d593331b5d23af/laya/router.py
+[laya-training]: https://github.com/NandhaKishorM/laya/blob/573e5b62696ba441230cd6be71d593331b5d23af/notebooks/laya_finetune_typed_decisions_2xT4_kaggle.ipynb
+[laya-research]: https://github.com/NandhaKishorM/laya/blob/573e5b62696ba441230cd6be71d593331b5d23af/research/README.md
+
+### General serving references
 
 - [vLLM: Efficient Memory Management for Large Language Model Serving with PagedAttention](https://arxiv.org/abs/2309.06180):
   cache paging, sharing, and serving measurements.

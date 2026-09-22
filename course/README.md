@@ -34,12 +34,21 @@ only required package for the included training demonstrations.
 | 4. Quantization | [Weights, activations, and kernels](04-weight-and-activation-quantization.md) | Explain scales, groups, calibration, precision, and artifact compatibility |
 | 5. Request state | [KV cache and cache quantization](05-kv-cache-and-quantization.md) | Calculate storage, reason about prefix reuse, and design a cache experiment |
 | 6. Serving at scale | [Scheduling and distributed systems](06-serving-and-distributed-systems.md) | Connect batching, queueing, parallelism, and latency objectives |
+| 7. JEV mini-course | [Typed decisions with Jev](06-serving-and-distributed-systems.md#610-jev-typed-decisions-instead-of-generated-text) | Interpret choice, score, and truth probabilities; separate calibration, escalation, and authorization |
+| 8. LAYA mini-course | [Local decision inference with Laya](06-serving-and-distributed-systems.md#611-laya-local-typed-decision-inference) | Trace encoder/head inference, budget per-question work, and evaluate local versus hosted decisions |
 
 Do the [practical workbook](WORKBOOK.md) as you go. It contains calculations,
 small training experiments, and larger capstones with explicit deliverables.
 The [connected lab](../pipeline/README.md) now supplies dataset generation,
 training runners, scoring, sequence-distillation preparation, CPU INT8 export,
 and bounded local load generation for one shared task.
+
+The JEV and LAYA mini-courses include
+[worked decision-evaluation and latency labs](WORKBOOK.md#lab-7-jev-decision-probabilities-and-abstention).
+They require no credentials or model downloads. Their primary-source research
+is dated 2026-09-22 and distinguishes verified interfaces and source code from
+unverified internals and publisher benchmark claims; no live integration is
+included.
 
 ## Included experiments
 

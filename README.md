@@ -23,11 +23,15 @@ course](course/README.md).
 | [Weight and activation quantization](course/04-weight-and-activation-quantization.md) | Scales, grouping, outliers, calibration, PTQ/QAT, precision, and kernel compatibility |
 | [KV cache and its quantization](course/05-kv-cache-and-quantization.md) | State lifetime, architecture-specific accounting, paging, prefix reuse, precision, and quality |
 | [Serving and distributed systems](course/06-serving-and-distributed-systems.md) | Batching, scheduling, latency/throughput, distributed parallelism, and operational tradeoffs |
+| [JEV mini-course](course/06-serving-and-distributed-systems.md#610-jev-typed-decisions-instead-of-generated-text) | Typed decisions, probability calibration, abstention, and hosted-service evaluation |
+| [LAYA mini-course](course/06-serving-and-distributed-systems.md#611-laya-local-typed-decision-inference) | Local encoder-based decisions, question batching, training evidence, and fair performance comparisons |
 
 The [foundations exercises](foundations/EXERCISES.md) include worked answers.
 The [infrastructure workbook](course/WORKBOOK.md) adds practical labs and four
 capstones: single-GPU inference, GPU adapter training, distillation plus
 quantization, and serving capacity under load.
+The JEV and LAYA lessons add two worked offline labs; they do not require
+API access or download model weights.
 
 Diagrams are embedded in the chapters. The [visual index](assets/README.md)
 links to four step-by-step animations and the structural diagrams. Animations

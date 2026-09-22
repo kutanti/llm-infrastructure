@@ -1,6 +1,7 @@
 # References
 
-Primary sources consulted on 2026-09-07. Web documentation
+Primary sources consulted on 2026-09-07, with JEV/LAYA additions researched
+on 2026-09-22. Web documentation
 and `main`/`master` branches are mutable; check the installed runtime's behavior.
 Publisher benchmark scores are not our measurements of quantized inference.
 
@@ -24,6 +25,32 @@ the explanations. Additional central readings:
 The adapter and distillation labs train synthetic numerical models on CPU.
 They demonstrate gradients and objectives, not GPU training capacity or the
 quality of a fine-tuned language-model checkpoint.
+
+## JEV and LAYA typed-decision courses
+
+The [JEV lesson](course/06-serving-and-distributed-systems.md#610-jev-typed-decisions-instead-of-generated-text)
+and [LAYA lesson](course/06-serving-and-distributed-systems.md#611-laya-local-typed-decision-inference)
+cite pinned primary snapshots and include offline exercises.
+
+- [TypeSafe Python SDK, commit 0ffd094](https://github.com/typesafe-ai/typesafe-sdk-python/tree/0ffd094c72ed9445223060b24ffd7a56aa781fb4):
+  SDK 0.7.1 request/answer types, hosted API access, and MIT client-code license.
+  This is not evidence of Jev's internal architecture or a model-weight license.
+- [TypeSafe integration guidance, commit 65a39f3](https://github.com/typesafe-ai/skills/blob/65a39f393687675ce170e6094757de20370365b9/skills/typesafe-ai/SKILL.md):
+  intended typed-decision usage; output types do not guarantee truth.
+- [Laya source, commit 573e5b6](https://github.com/NandhaKishorM/laya/tree/573e5b62696ba441230cd6be71d593331b5d23af):
+  package 0.3.5, Apache-2.0 source declaration, encoder/head architecture,
+  per-question sequence construction, inference, and checkpoint routing.
+- [Laya specialist fine-tuning notebook](https://github.com/NandhaKishorM/laya/blob/573e5b62696ba441230cd6be71d593331b5d23af/notebooks/laya_finetune_typed_decisions_2xT4_kaggle.ipynb):
+  published soft-target and policy-gradient recipe, not a reproduction of all
+  released checkpoints.
+- [Laya research qualifications](https://github.com/NandhaKishorM/laya/blob/573e5b62696ba441230cd6be71d593331b5d23af/research/README.md):
+  distinguishes specialist fine-tuning from base-model evaluation and states
+  that Jev comparisons use third-party runs, not a matched local experiment.
+
+The official product websites and Hugging Face model cards could not be fetched
+during this research. Weight licensing, Jev training internals, and independent
+performance comparisons remain unverified here. The course does not infer those
+facts from SDK licensing, marketing claims, or source-package version numbers.
 
 ## Learning and representation
 
