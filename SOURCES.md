@@ -102,6 +102,34 @@ network rather than claiming to reproduce the deployed Qwen architecture.
 - [Speculative decoding paper](https://arxiv.org/abs/2211.17192):
   draft-and-verify acceleration; benefits depend on acceptance and costs.
 
+## Typed decision models: Jev and Laya
+
+Consulted on 2026-09-28 for the [typed decisions course](decisions/README.md). TypeSafe's
+site and Hugging Face were unreachable from the environment used to write it, so the
+course was checked against the released source code, and no real Jev or Laya output was
+recorded.
+
+- [TypeSafe Python SDK 0.7.2](https://github.com/typesafe-ai/typesafe-sdk-python/tree/v0.7.2)
+  and its [request and response schema](https://github.com/typesafe-ai/typesafe-sdk-python/blob/v0.7.2/src/typesafe_sdk/_schemas/models.py)
+  ([PyPI](https://pypi.org/project/typesafe-sdk/)): the `/v1/systemone` wire format, the
+  `choice`, `score`, and `noul` answer shapes, usage, and model listing.
+- [Laya 0.3.21 README](https://github.com/NandhaKishorM/laya/blob/v0.3.21/README.md),
+  [HTTP API](https://github.com/NandhaKishorM/laya/blob/v0.3.21/docs/http-api.md), and
+  [package](https://pypi.org/project/laya/): the checkpoints, routing, the two confidence
+  fields, calibration, limits, `laya-serve`, and the vendor's own comparison with Jev.
+- [Laya model card](https://huggingface.co/convaiinnovations/laya) and
+  [ModernBERT](https://arxiv.org/abs/2412.13663), Laya's encoder.
+- [Independent analysis of Jev's confidence field](https://github.com/slashdaemon/jev-expert/blob/5e7504d564bb7f590e65c0b5c949e0f9ae535129/references/confidence.md)
+  (third-party; TypeSafe does not publish the formula).
+- [On Calibration of Modern Neural Networks](https://arxiv.org/abs/1706.04599),
+  [Strictly Proper Scoring Rules, Prediction, and Estimation](https://doi.org/10.1198/016214506000001437),
+  [Wilson (1927)](https://doi.org/10.1080/01621459.1927.10502953), and
+  [McNemar (1947)](https://doi.org/10.1007/BF02295996): calibration, scoring rules, and
+  small-sample comparisons.
+
+Every Jev and Laya accuracy, calibration, latency, and cost figure in the course is a
+vendor or third-party claim, and each one is labeled that way where it appears.
+
 ## What was measured here
 
 `data\qwen-baseline.json` contains selected observations and answers from the

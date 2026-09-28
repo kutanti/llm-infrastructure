@@ -23,6 +23,7 @@ course](course/README.md).
 | [Weight and activation quantization](course/04-weight-and-activation-quantization.md) | Scales, grouping, outliers, calibration, PTQ/QAT, precision, and kernel compatibility |
 | [KV cache and its quantization](course/05-kv-cache-and-quantization.md) | State lifetime, architecture-specific accounting, paging, prefix reuse, precision, and quality |
 | [Serving and distributed systems](course/06-serving-and-distributed-systems.md) | Batching, scheduling, latency/throughput, distributed parallelism, and operational tradeoffs |
+| [Typed decisions with Jev and Laya](decisions/README.md) | Asking typed questions, reading probabilities, thresholds and calibration, running the hosted and open models, and comparing them fairly |
 
 The [foundations exercises](foundations/EXERCISES.md) include worked answers.
 The [infrastructure workbook](course/WORKBOOK.md) adds practical labs and four
@@ -57,6 +58,11 @@ python foundations\03_transformer_block.py
 python -m course.demos.lora
 python -m course.demos.distillation
 python -m course.demos.quantization
+
+python -m decisions.questions
+python -m decisions.answers
+python -m decisions.calibration
+python -m decisions.ask
 ```
 
 These CPU experiments expose the actual operations: explicit gradient updates,

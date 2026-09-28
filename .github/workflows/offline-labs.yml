@@ -39,5 +39,6 @@ jobs:
           import sys
           for script in ("01_why_kv_cache.py", "03_kv_quant_error.py", "05_flash_attention.py"):
               subprocess.run([sys.executable, script], check=True)
-          for module in ("course.demos.lora", "course.demos.distillation", "course.demos.quantization"):
+          for module in ("course.demos.lora", "course.demos.distillation", "course.demos.quantization",
+                         "decisions.questions", "decisions.answers", "decisions.calibration", "decisions.ask"):
               subprocess.run([sys.executable, "-m", module], check=True)
