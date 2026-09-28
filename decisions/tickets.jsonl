@@ -1,0 +1,15 @@
+{"id": "t01", "state": "My card was charged two times for the same order. I want one of the charges reversed.", "labels": {"department": "billing", "refund_requested": true}}
+{"id": "t02", "state": "Why does this month's invoice include a setup fee? Nobody mentioned it.", "labels": {"department": "billing", "refund_requested": false}}
+{"id": "t03", "state": "Please send me a PDF copy of my receipt from last month.", "labels": {"department": "billing", "refund_requested": false}}
+{"id": "t04", "state": "I cancelled during the free trial, but you still took 20 euros. Give it back.", "labels": {"department": "billing", "refund_requested": true}}
+{"id": "t05", "state": "You billed me for the plan I downgraded from last week. Please return the difference.", "labels": {"department": "billing", "refund_requested": true}}
+{"id": "t06", "state": "The password reset email never arrives, so I cannot sign in.", "labels": {"department": "account", "refund_requested": false}}
+{"id": "t07", "state": "Please change the email address on my profile to my new work address.", "labels": {"department": "account", "refund_requested": false}}
+{"id": "t08", "state": "I don't want a refund. I just need my locked account opened again.", "labels": {"department": "account", "refund_requested": false}}
+{"id": "t09", "state": "Someone may have signed in to my account from another country last night.", "labels": {"department": "account", "refund_requested": false}}
+{"id": "t10", "state": "The app crashes every time I open the settings page.", "labels": {"department": "technical", "refund_requested": false}}
+{"id": "t11", "state": "Exporting a report shows a 500 error on the dashboard.", "labels": {"department": "technical", "refund_requested": false}}
+{"id": "t12", "state": "The export button does nothing in Firefox, but it works in Chrome.", "labels": {"department": "technical", "refund_requested": false}}
+{"id": "t13", "state": "La aplicación se cierra cuando intento subir una foto.", "labels": {"department": "technical", "refund_requested": false}}
+{"id": "t14", "state": "Do you offer a discount for schools before we buy?", "labels": {"department": "other", "refund_requested": false}}
+{"id": "t15", "state": "Thanks, the new update looks great!", "labels": {"department": "other", "refund_requested": false}}
